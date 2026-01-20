@@ -12,15 +12,17 @@ __all__ = ["Measure", "MeasureType"]
 
 __NORMAL__ = stats.Normal()
 
+
 class MeasureType(StrEnum):
     PROPORTION_BOOLEAN = "proportion_boolean"
     PROPORTION_CATEGORICAL = "proportion_categorical"
     MEAN = "mean"
     VARIANCE = "variance"
 
+
 @dataclass
 class Measure:
-    name : str
+    name: str
     measure_type: MeasureType
     absolute_error: Optional[float] = field(default=None)
     """Absolute error of the measure.
@@ -42,7 +44,6 @@ class Measure:
     """For categorical measure type, this is the number of categories.
     """
 
-
     def __post_init__(self):
         # Init value range if unspecified
         match self.measure_type:
@@ -51,20 +52,17 @@ class Measure:
 
     def _get_adjusted_repetitions_(self) -> int:
         repetitions = self.repetitions
-        match self.measure_type:
-            case MeasureType.PROPORTION_CATEGORICAL:
-                repetitions *= self.categories
+        if self.measure_type == MeasureType.PROPORTION_CATEGORICAL:
+            repetitions *= self.categories
         return repetitions
 
     def _compute_adjusted_z_(self, confidence: float, target: str) -> float:
-        assert self.confidence is not None, (
-            f"confidence must be specified to compute {target}"
-        )
+        assert confidence >= 0 and confidence <= 1, "confidence must be in [0;1]"
         repetitions = self._get_adjusted_repetitions_()
         if repetitions > 1:
             confidence = 1 - (1 - confidence) ** (1 / repetitions)
             logger.info(
-                f"{self.name} adjusted confidence from {self.confidence:.2%} to {confidence:.2%} using Sickhart's formula"
+                f"{self.name} adjusted confidence from {confidence:.2%} to {confidence:.2%} using Sickhart's formula"
             )
         z = __NORMAL__.icdf(confidence)
 
@@ -80,13 +78,12 @@ class Measure:
             )
             z = z - self.std
         return z
-        
 
     def compute_sample_size(
         self,
         confidence: float,
     ) -> int:
-        """COmpute the sample size to reach the desired confidence level.
+        """Compute the sample size to reach the desired confidence level.
 
         Args:
             confidence (float): [0; 1]
@@ -97,10 +94,9 @@ class Measure:
         logger.info(f"{self.name} computing sample size")
         z = self._compute_adjusted_z_(confidence, "sample size")
         assert self.absolute_error is not None, (
-                "absolute_error must be specified to compute sample size"
-            )
+            "absolute_error must be specified to compute sample size"
+        )
         return int(math.ceil((z / self.absolute_error)) ** 2)
-    
 
     def compute_absolute_error(
         self,
