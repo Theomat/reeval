@@ -65,8 +65,7 @@ class Measure:
             logger.info(
                 f"{self.name} adjusted confidence from {confidence:.2%} to {1 - alpha:.2%} using Sickhart's formula"
             )
-        z = __NORMAL__.icdf(alpha)
-
+        z = __NORMAL__.icdf(1 - alpha)
         if self.measure_type != MeasureType.VARIANCE:
             if self.std is None and self.value_range is not None:
                 logger.info(
