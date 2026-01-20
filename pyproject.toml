@@ -1,0 +1,9 @@
+[project]
+name = "reeval"
+version = "0.1.0"
+description = "Reliable and Efficient EVALuations"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "scipy>=1.17.0",
+]
