@@ -58,11 +58,12 @@ class Measure:
 
     def _compute_adjusted_z_(self, confidence: float, target: str) -> float:
         assert confidence >= 0 and confidence <= 1, "confidence must be in [0;1]"
+        original_conf = confidence
         repetitions = self._get_adjusted_repetitions_()
         if repetitions > 1:
             confidence = 1 - (1 - confidence) ** (1 / repetitions)
             logger.info(
-                f"{self.name} adjusted confidence from {confidence:.2%} to {confidence:.2%} using Sickhart's formula"
+                f"{self.name} adjusted confidence from {original_conf:.2%} to {confidence:.2%} using Sickhart's formula"
             )
         z = __NORMAL__.icdf(confidence)
 
