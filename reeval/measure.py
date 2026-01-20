@@ -130,7 +130,7 @@ class Measure:
         """
         logger.info(f"{self.name} computing confidence")
 
-        adjusted_sample_size = sample_size
+        adjusted_sample_size = math.sqrt(sample_size)
         if self.measure_type != MeasureType.VARIANCE:
             if self.std is None and self.value_range is not None:
                 logger.info(
@@ -141,7 +141,7 @@ class Measure:
             assert self.std is not None, (
                 "std or value_range must be specified to compute confidence"
             )
-            adjusted_sample_size = adjusted_sample_size + self.std
+            adjusted_sample_size = adjusted_sample_size / self.std
 
         assert self.absolute_error is not None, (
             "absolute_error must be specified to compute confidence"
@@ -149,5 +149,6 @@ class Measure:
         confidence = __NORMAL__.cdf(adjusted_sample_size * self.absolute_error)
         logger.info(f"{self.name} obtained base confidence {confidence:.2%}")
         repetitions = self._get_adjusted_repetitions_()
-        true_confidence = 1 - (1 - confidence) ** repetitions
-        return true_confidence
+        alpha = 1 - confidence
+        true_alpha = 1 - (1 - alpha) ** repetitions
+        return 1 - true_alpha

@@ -76,14 +76,13 @@ class Evaluation:
         """
         logger.info("computing confidences")
 
-        total_repeats = self._get_total_repeats_()
         confs = {}
         total_conf = 1
         sample_size = self.__get_adjusted_sample_size__()
 
         for measure in self.measures:
             before_repeats = measure.repetitions
-            measure.repetitions = total_repeats / measure.categories
+            measure.repetitions = measure.repetitions * self.max_comparisons
             confidence = measure.compute_confidence(sample_size)
             confs[measure.name] = confidence
             measure.repetitions = before_repeats
