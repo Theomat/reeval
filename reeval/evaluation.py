@@ -13,10 +13,15 @@ __all__ = ["Evaluation"]
 @dataclass
 class Evaluation:
     measures: list[Measure]
+    """The measures present in this evaluation."""
     max_comparisons: int
+    """The maximum number of times this evaluation will be used to make comparisons, ideally you want that by using an AND of all the comparisons you reach the target confidence level."""
     confidence: Optional[float] = field(default=None)
+    """Confidence level in [0;1] of the evaluation assuming it is the confidence that all statements about all measures are true at the same time and not independently."""
     population_size: float = field(default=float("inf"))
+    """Size of the population the instances are sampled from, underestimate for conservative estimates."""
     sample_size: Optional[int] = field(default=None)
+    """Number of samples taken for this evaluation."""
 
     def _get_total_repeats_(self) -> int:
         return (
