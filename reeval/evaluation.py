@@ -13,10 +13,16 @@ __all__ = ["Evaluation"]
 @dataclass
 class Evaluation:
     measures: list[Measure]
+    max_comparisons: int
     confidence: Optional[float] = field(default=None)
-    sample_size: Optional[int] = field(default=None)
     population_size: float = field(default=float("inf"))
-    max_comparisons: Optional[int] = field(default=None)
+    sample_size: Optional[int] = field(default=None)
+
+    def _get_total_repeats_(self) -> int:
+        return (
+            sum(m._get_adjusted_repetitions_() for m in self.measures)
+            * self.max_comparisons
+        )
 
     def compute_sample_size(self) -> int:
         """Compute the sample size that ensures all guarantees for all evaluations.
@@ -25,11 +31,7 @@ class Evaluation:
             int: sample size
         """
         logger.info("computing sample size")
-
-        total_repeats = (
-            sum(m._get_adjusted_repetitions_() for m in self.measures)
-            * self.max_comparisons
-        )
+        total_repeats = self._get_total_repeats_()
 
         max_sample_size = 0
         for measure in self.measures:
@@ -69,10 +71,7 @@ class Evaluation:
         """
         logger.info("computing confidences")
 
-        total_repeats = (
-            sum(m._get_adjusted_repetitions_() for m in self.measures)
-            * self.max_comparisons
-        )
+        total_repeats = self._get_total_repeats_()
         confs = {}
         total_conf = 1
         sample_size = self.__get_adjusted_sample_size__()
@@ -95,10 +94,7 @@ class Evaluation:
         """
         logger.info("computing absolute errors")
 
-        total_repeats = (
-            sum(m._get_adjusted_repetitions_() for m in self.measures)
-            * self.max_comparisons
-        )
+        total_repeats = self._get_total_repeats_()
         errors = {}
         sample_size = self.__get_adjusted_sample_size__()
 
