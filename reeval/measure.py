@@ -58,14 +58,14 @@ class Measure:
 
     def _compute_adjusted_z_(self, confidence: float, target: str) -> float:
         assert confidence >= 0 and confidence <= 1, "confidence must be in [0;1]"
-        original_conf = confidence
+        alpha = 1 - confidence
         repetitions = self._get_adjusted_repetitions_()
         if repetitions > 1:
-            confidence = 1 - (1 - confidence) ** (1 / repetitions)
+            alpha = 1 - math.pow(1 - alpha, 1 / repetitions)
             logger.info(
-                f"{self.name} adjusted confidence from {original_conf:.2%} to {confidence:.2%} using Sickhart's formula"
+                f"{self.name} adjusted confidence from {confidence:.2%} to {1 - alpha:.2%} using Sickhart's formula"
             )
-        z = __NORMAL__.icdf(confidence)
+        z = __NORMAL__.icdf(alpha)
 
         if self.measure_type != MeasureType.VARIANCE:
             if self.std is None and self.value_range is not None:
@@ -77,7 +77,7 @@ class Measure:
             assert self.std is not None, (
                 f"std or value_range must be specified to compute {target}"
             )
-            z = z - self.std
+            z = z * self.std
         return z
 
     def compute_sample_size(
