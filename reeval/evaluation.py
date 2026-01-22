@@ -14,7 +14,7 @@ __all__ = ["Evaluation"]
 class Evaluation:
     measures: list[Measure]
     """The measures present in this evaluation."""
-    max_comparisons: int
+    max_comparisons: int = field(default=1)
     """The maximum number of times this evaluation will be used to make comparisons, ideally you want that by using an AND of all the comparisons you reach the target confidence level."""
     confidence: Optional[float] = field(default=None)
     """Confidence level in [0;1] of the evaluation assuming it is the confidence that all statements about all measures are true at the same time and not independently."""
