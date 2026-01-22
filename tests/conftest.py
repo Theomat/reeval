@@ -1,0 +1,109 @@
+import pytest
+
+from reeval.measure import Measure, MeasureType
+from reeval.evaluation import Evaluation
+
+
+@pytest.fixture
+def boolean_proportion_measure():
+    """A basic boolean proportion measure."""
+    return Measure(
+        name="accuracy",
+        measure_type=MeasureType.PROPORTION_BOOLEAN,
+        absolute_error=0.05,
+    )
+
+
+@pytest.fixture
+def categorical_proportion_measure():
+    """A categorical proportion measure with multiple categories."""
+    return Measure(
+        name="category_distribution",
+        measure_type=MeasureType.PROPORTION_CATEGORICAL,
+        absolute_error=0.05,
+        categories=5,
+    )
+
+
+@pytest.fixture
+def mean_measure():
+    """A mean measure with specified std."""
+    return Measure(
+        name="response_time",
+        measure_type=MeasureType.MEAN,
+        absolute_error=0.1,
+        std=2.0,
+    )
+
+
+@pytest.fixture
+def mean_measure_with_range():
+    """A mean measure with value_range instead of std."""
+    return Measure(
+        name="score",
+        measure_type=MeasureType.MEAN,
+        absolute_error=0.5,
+        value_range=(0, 100),
+    )
+
+
+@pytest.fixture
+def variance_measure():
+    """A variance measure."""
+    return Measure(
+        name="response_variance",
+        measure_type=MeasureType.VARIANCE,
+        absolute_error=0.1,
+    )
+
+
+@pytest.fixture
+def measure_with_repetitions():
+    """A measure with multiple repetitions."""
+    return Measure(
+        name="repeated_accuracy",
+        measure_type=MeasureType.PROPORTION_BOOLEAN,
+        absolute_error=0.05,
+        repetitions=3,
+    )
+
+
+@pytest.fixture
+def basic_evaluation(boolean_proportion_measure):
+    """A basic evaluation with a single measure."""
+    return Evaluation(
+        measures=[boolean_proportion_measure],
+        max_comparisons=1,
+        confidence=0.95,
+    )
+
+
+@pytest.fixture
+def multi_measure_evaluation(boolean_proportion_measure, mean_measure):
+    """An evaluation with multiple measures."""
+    return Evaluation(
+        measures=[boolean_proportion_measure, mean_measure],
+        max_comparisons=2,
+        confidence=0.95,
+    )
+
+
+@pytest.fixture
+def finite_population_evaluation(boolean_proportion_measure):
+    """An evaluation with finite population."""
+    return Evaluation(
+        measures=[boolean_proportion_measure],
+        max_comparisons=1,
+        confidence=0.95,
+        population_size=1000,
+    )
+
+
+@pytest.fixture
+def evaluation_with_sample_size(boolean_proportion_measure):
+    """An evaluation with sample_size specified."""
+    return Evaluation(
+        measures=[boolean_proportion_measure],
+        max_comparisons=1,
+        sample_size=500,
+    )
