@@ -108,3 +108,38 @@ def evaluation_with_sample_size(boolean_proportion_measure):
         max_comparisons=1,
         sample_size=500,
     )
+
+
+@pytest.fixture
+def filtered_population_evaluation():
+    """An evaluation with a filtered population."""
+    # Create the source population and first evaluation
+    original = FinitePopulation(192)
+    m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+    eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
+    m1.empirical_value = 0.53
+    # Create filtered population
+    filtered = original.filter_on(eval1, m1)
+    # Create second evaluation on filtered population
+    m2 = Measure("b", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+    eval2 = Evaluation([m2], filtered, confidence=0.96, sample_size=35)
+    return eval2, filtered, m1, m2
+
+
+@pytest.fixture
+def chained_filtered_population():
+    """A chain of filtered populations."""
+    original = FinitePopulation(192)
+    m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+    eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
+    m1.empirical_value = 0.53
+    filtered_1 = original.filter_on(eval1, m1)
+
+    m2 = Measure("b", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+    eval2 = Evaluation([m2], filtered_1, confidence=0.96, sample_size=35)
+    m2.empirical_value = 0.31
+    filtered_2 = filtered_1.filter_on(eval2, m2)
+
+    m3 = Measure("c", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+    eval3 = Evaluation([m3], filtered_2, confidence=0.95, sample_size=11)
+    return eval3, filtered_2, [m1, m2, m3]

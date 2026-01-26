@@ -310,3 +310,125 @@ class TestEvaluationIntegration:
         errors = evaluation.compute_absolute_errors()
         # Achieved error should be at most the target
         assert errors["test"] <= target_error + 0.001  # Allow small numerical tolerance
+
+
+class TestFilteredPopulation:
+    """Tests for Evaluation with FilteredPopulation."""
+
+    def test_filtered_population_get_size(self):
+        """Test that FilteredPopulation computes conservative size estimate."""
+        original = FinitePopulation(192)
+        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
+        m1.empirical_value = 0.53
+        filtered = original.filter_on(eval1, m1)
+        # Conservative estimate: 192 * (0.53 + 0.1) = 192 * 0.63 = 121 (rounded up)
+        expected_size = int(math.ceil(192 * (0.53 + 0.1)))
+        assert filtered.get_size() == expected_size
+
+    def test_filtered_population_from_infinite_is_infinite(self):
+        """Test that filtering an infinite population results in infinite population."""
+        infinite = InfinitePopulation()
+        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        eval1 = Evaluation([m1], infinite, confidence=0.95, sample_size=100)
+        m1.empirical_value = 0.5
+        filtered = infinite.filter_on(eval1, m1)
+        assert filtered.is_infinite()
+        assert filtered.get_size() == -1
+
+    def test_evaluation_with_filtered_population_compute_confidences(
+        self, filtered_population_evaluation
+    ):
+        """Test compute_confidences works with filtered population."""
+        eval2, filtered, m1, m2 = filtered_population_evaluation
+        total_conf, confs = eval2.compute_confidences()
+        assert isinstance(total_conf, float)
+        assert 0 <= total_conf <= 1
+        assert "b" in confs
+
+    def test_evaluation_with_filtered_population_compute_errors(
+        self, filtered_population_evaluation
+    ):
+        """Test compute_absolute_errors works with filtered population."""
+        eval2, filtered, m1, m2 = filtered_population_evaluation
+        errors = eval2.compute_absolute_errors()
+        assert "b" in errors
+        assert errors["b"] > 0
+
+    def test_evaluation_with_filtered_population_compute_sample_size(self):
+        """Test compute_sample_size works with filtered population."""
+        original = FinitePopulation(192)
+        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
+        m1.empirical_value = 0.53
+        filtered = original.filter_on(eval1, m1)
+
+        m2 = Measure("b", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        eval2 = Evaluation([m2], filtered, confidence=0.96)
+        sample_size = eval2.compute_sample_size()
+        assert sample_size > 0
+        assert isinstance(sample_size, int)
+
+    def test_chained_filtered_population_size(self, chained_filtered_population):
+        """Test that chained filtered populations compute correct size."""
+        eval3, filtered_2, measures = chained_filtered_population
+        m1, m2, m3 = measures
+        # filtered_1 size: 192 * (0.53 + 0.1) = 121
+        # filtered_2 size: 121 * (0.31 + 0.1) = 50 (rounded up)
+        filtered_1_size = int(math.ceil(192 * (m1.empirical_value + m1.absolute_error)))
+        expected_size = int(
+            math.ceil(filtered_1_size * (m2.empirical_value + m2.absolute_error))
+        )
+        assert filtered_2.get_size() == expected_size
+
+    def test_chained_filtered_population_evaluation(self, chained_filtered_population):
+        """Test that evaluation on chained filtered population works."""
+        eval3, filtered_2, measures = chained_filtered_population
+        total_conf, confs = eval3.compute_confidences()
+        assert isinstance(total_conf, float)
+        assert 0 <= total_conf <= 1
+
+    def test_filtered_population_with_categorical_measure(self):
+        """Test FilteredPopulation with categorical measure (as in main.py)."""
+        original = FinitePopulation(192)
+        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
+        m1.empirical_value = 0.68
+        filtered = original.filter_on(eval1, m1)
+
+        m2 = Measure(
+            "cat", MeasureType.PROPORTION_CATEGORICAL, absolute_error=0.1, categories=3
+        )
+        eval2 = Evaluation([m2], filtered, confidence=0.95, sample_size=24)
+        total_conf, confs = eval2.compute_confidences()
+        assert isinstance(total_conf, float)
+        assert "cat" in confs
+
+    def test_filtered_population_smaller_than_finite(self):
+        """Test that filtered population is smaller than or equal to source."""
+        original = FinitePopulation(1000)
+        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.05)
+        eval1 = Evaluation([m1], original, confidence=0.95, sample_size=100)
+        m1.empirical_value = 0.3
+        filtered = original.filter_on(eval1, m1)
+        assert filtered.get_size() <= original.get_size()
+
+    def test_filter_on_multiple_measures(self):
+        """Test filtering on multiple measures at once."""
+        original = FinitePopulation(500)
+        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        m2 = Measure("b", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
+        eval1 = Evaluation([m1, m2], original, confidence=0.95, sample_size=100)
+        m1.empirical_value = 0.5
+        m2.empirical_value = 0.4
+        # Filter on both measures
+        filtered = original.filter_on(eval1, [m1, m2])
+        # Size should be: 500 * (0.5 + 0.1) * (0.4 + 0.1) = 500 * 0.6 * 0.5 = 150
+        expected = int(
+            math.ceil(
+                500
+                * (m1.empirical_value + m1.absolute_error)
+                * (m2.empirical_value + m2.absolute_error)
+            )
+        )
+        assert filtered.get_size() == expected
