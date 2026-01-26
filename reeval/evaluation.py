@@ -166,6 +166,7 @@ class Evaluation:
 
 def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int]:
     """Computes the conservative sample size so that all sample size required are respected for all evaluations at the same time.
+    Ensures that downstream evaluations reach the desired confidence.
 
     Args:
         evals (list[Evaluation]): the list of evaluations (the leaves are enough, it needs not to be a tree though merge operators are not yet supported)
