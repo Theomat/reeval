@@ -3,6 +3,7 @@ import pytest
 
 from reeval.measure import Measure, MeasureType
 from reeval.evaluation import Evaluation
+from reeval.population import FinitePopulation, InfinitePopulation
 
 
 class TestGetTotalRepeats:
@@ -71,7 +72,7 @@ class TestComputeSampleSize:
             measures=finite_population_evaluation.measures,
             max_comparisons=1,
             confidence=0.95,
-            population_size=float("inf"),
+            population=InfinitePopulation(),
         )
         infinite_size = infinite_eval.compute_sample_size()
         finite_size = finite_population_evaluation.compute_sample_size()
@@ -89,7 +90,7 @@ class TestComputeSampleSize:
             measures=[measure],
             max_comparisons=1,
             confidence=0.95,
-            population_size=pop_size,
+            population=FinitePopulation(size=pop_size),
         )
         # Compute with infinite population
         inf_eval = Evaluation(
@@ -134,7 +135,7 @@ class TestGetAdjustedSampleSize:
             measures=[boolean_proportion_measure],
             max_comparisons=1,
             sample_size=sample_size,
-            population_size=pop_size,
+            population=FinitePopulation(size=pop_size),
         )
         adjusted = evaluation.__get_adjusted_sample_size__()
         # Formula: n * (N-1) / (N-n)

@@ -85,8 +85,8 @@ class TestComputeAdjustedZ:
             std=0.5,
         )
         z = measure._compute_adjusted_z_(0.95, "test")
-        # For 95% confidence, z ~ 1.645 (one-tailed)
-        expected_z = stats.Normal().icdf(0.95) * 0.5
+        # For 95% confidence, z ~ 1.96 (two-tailed: 1 - alpha/2 = 0.975)
+        expected_z = stats.Normal().icdf(0.975) * 0.5
         assert math.isclose(z, expected_z, rel_tol=1e-6)
 
     def test_auto_fills_std_from_value_range(self):
@@ -110,13 +110,14 @@ class TestComputeAdjustedZ:
         # With repetitions, alpha is adjusted using Sickhart's formula
         alpha = 1 - 0.95
         adjusted_alpha = 1 - math.pow(1 - alpha, 1 / 3)
-        expected_z = stats.Normal().icdf(1 - adjusted_alpha) * 0.5
+        # Two-tailed: use 1 - adjusted_alpha / 2
+        expected_z = stats.Normal().icdf(1 - adjusted_alpha / 2) * 0.5
         assert math.isclose(z, expected_z, rel_tol=1e-6)
 
     def test_variance_skips_std_multiplication(self, variance_measure):
         z = variance_measure._compute_adjusted_z_(0.95, "test")
-        # For variance, z is not multiplied by std
-        expected_z = stats.Normal().icdf(0.95)
+        # For variance, z is not multiplied by std (two-tailed)
+        expected_z = stats.Normal().icdf(0.975)
         assert math.isclose(z, expected_z, rel_tol=1e-6)
 
     def test_raises_for_confidence_below_zero(self):
@@ -151,17 +152,17 @@ class TestComputeSampleSize:
 
     def test_computes_correct_sample_size(self, boolean_proportion_measure):
         sample_size = boolean_proportion_measure.compute_sample_size(0.95)
-        # For boolean proportion: value_range=(0,1), std=0.25
-        # z = Normal().icdf(0.95) * 0.25
-        # sample_size = ceil(z / 0.05)^2 (ceil applied first, then squared)
-        z = stats.Normal().icdf(0.95) * 0.25
-        expected = int(math.ceil(z / 0.05) ** 2)
+        # For boolean proportion: value_range=(0,1), std=0.5 (range / 2)
+        # z = Normal().icdf(0.975) * 0.5 (two-tailed)
+        # sample_size = ceil((z / 0.05)^2)
+        z = stats.Normal().icdf(0.975) * 0.5
+        expected = int(math.ceil((z / 0.05) ** 2))
         assert sample_size == expected
 
     def test_computes_sample_size_with_explicit_std(self, mean_measure):
         sample_size = mean_measure.compute_sample_size(0.95)
-        z = stats.Normal().icdf(0.95) * 2.0  # std=2.0
-        expected = int(math.ceil(z / 0.1) ** 2)
+        z = stats.Normal().icdf(0.975) * 2.0  # std=2.0, two-tailed
+        expected = int(math.ceil((z / 0.1) ** 2))
         assert sample_size == expected
 
     def test_raises_without_absolute_error(self):
@@ -183,8 +184,9 @@ class TestComputeSampleSize:
         # With repetitions, the confidence is adjusted
         alpha = 1 - 0.95
         adjusted_alpha = 1 - math.pow(1 - alpha, 1 / 3)
-        z = stats.Normal().icdf(1 - adjusted_alpha) * 0.25
-        expected = int(math.ceil(z / 0.05) ** 2)
+        # Two-tailed: use 1 - adjusted_alpha / 2, std=0.5 for boolean proportion
+        z = stats.Normal().icdf(1 - adjusted_alpha / 2) * 0.5
+        expected = int(math.ceil((z / 0.05) ** 2))
         assert sample_size == expected
 
 
@@ -193,7 +195,8 @@ class TestComputeAbsoluteError:
 
     def test_computes_correct_error(self, boolean_proportion_measure):
         error = boolean_proportion_measure.compute_absolute_error(1000, 0.95)
-        z = stats.Normal().icdf(0.95) * 0.25
+        # Two-tailed z, std=0.5 for boolean proportion
+        z = stats.Normal().icdf(0.975) * 0.5
         expected = z / math.sqrt(1000)
         assert math.isclose(error, expected, rel_tol=1e-6)
 
@@ -211,7 +214,7 @@ class TestComputeAbsoluteError:
 
     def test_variance_measure_error(self, variance_measure):
         error = variance_measure.compute_absolute_error(1000, 0.95)
-        z = stats.Normal().icdf(0.95)  # No std multiplication for variance
+        z = stats.Normal().icdf(0.975)  # No std multiplication for variance, two-tailed
         expected = z / math.sqrt(1000)
         assert math.isclose(error, expected, rel_tol=1e-6)
 
@@ -221,9 +224,9 @@ class TestComputeConfidence:
 
     def test_computes_correct_confidence(self, boolean_proportion_measure):
         confidence = boolean_proportion_measure.compute_confidence(1000)
-        # adjusted_sample_size = sqrt(1000) / 0.25
+        # adjusted_sample_size = sqrt(1000) / 0.5 (std=0.5 for boolean proportion)
         # confidence = Normal().cdf(adjusted_sample_size * 0.05)
-        adjusted = math.sqrt(1000) / 0.25
+        adjusted = math.sqrt(1000) / 0.5
         expected = stats.Normal().cdf(adjusted * 0.05)
         assert math.isclose(confidence, expected, rel_tol=1e-6)
 
@@ -243,8 +246,8 @@ class TestComputeConfidence:
 
     def test_confidence_with_repetitions(self, measure_with_repetitions):
         confidence = measure_with_repetitions.compute_confidence(1000)
-        # Base confidence calculation
-        adjusted = math.sqrt(1000) / 0.25
+        # Base confidence calculation (std=0.5 for boolean proportion)
+        adjusted = math.sqrt(1000) / 0.5
         base_conf = stats.Normal().cdf(adjusted * 0.05)
         # Adjust for repetitions
         alpha = 1 - base_conf

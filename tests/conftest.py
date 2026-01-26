@@ -2,6 +2,7 @@ import pytest
 
 from reeval.measure import Measure, MeasureType
 from reeval.evaluation import Evaluation
+from reeval.population import FinitePopulation
 
 
 @pytest.fixture
@@ -95,7 +96,7 @@ def finite_population_evaluation(boolean_proportion_measure):
         measures=[boolean_proportion_measure],
         max_comparisons=1,
         confidence=0.95,
-        population_size=1000,
+        population=FinitePopulation(size=1000),
     )
 
 
