@@ -20,9 +20,10 @@ class MeasureType(StrEnum):
     VARIANCE = "variance"
 
 
-@dataclass
+@dataclass()
 class Measure:
     name: str
+    """Name of the measure, it should be a unique identifier."""
     measure_type: MeasureType
     absolute_error: Optional[float] = field(default=None)
     """Absolute error of the measure.
@@ -43,6 +44,9 @@ class Measure:
     categories: int = field(default=1)
     """For categorical measure type, this is the number of categories.
     """
+    empirical_value: float | None = field(default=None)
+    """Empirical value measured.
+    """
 
     def __post_init__(self):
         # Init value range if unspecified
@@ -50,16 +54,21 @@ class Measure:
             case MeasureType.PROPORTION_BOOLEAN | MeasureType.PROPORTION_CATEGORICAL:
                 self.value_range = (0, 1)
 
+    def __hash__(self):
+        return hash(self.name)
+
     def _get_adjusted_repetitions_(self) -> int:
         repetitions = self.repetitions
         if self.measure_type == MeasureType.PROPORTION_CATEGORICAL:
             repetitions *= self.categories
         return repetitions
 
-    def _compute_adjusted_z_(self, confidence: float, target: str) -> float:
+    def _compute_adjusted_z_(
+        self, confidence: float, target: str, repetition_multiplier: int = 1
+    ) -> float:
         assert confidence >= 0 and confidence <= 1, "confidence must be in [0;1]"
         alpha = 1 - confidence
-        repetitions = self._get_adjusted_repetitions_()
+        repetitions = self._get_adjusted_repetitions_() * repetition_multiplier
         if repetitions > 1:
             alpha = 1 - math.pow(1 - alpha, 1 / repetitions)
             logger.info(
@@ -73,15 +82,14 @@ class Measure:
                 )
                 self.std = (self.value_range[1] - self.value_range[0]) / 4
 
-            assert self.std is not None, (
-                f"std or value_range must be specified to compute {target}"
-            )
+            assert (
+                self.std is not None
+            ), f"std or value_range must be specified to compute {target}"
             z = z * self.std
         return z
 
     def compute_sample_size(
-        self,
-        confidence: float,
+        self, confidence: float, repetition_multiplier: int = 1
     ) -> int:
         """Compute the sample size to reach the desired confidence level.
 
@@ -91,11 +99,11 @@ class Measure:
         Returns:
             int: sample size required
         """
-        logger.info(f"{self.name} computing sample size")
-        z = self._compute_adjusted_z_(confidence, "sample size")
-        assert self.absolute_error is not None, (
-            "absolute_error must be specified to compute sample size"
-        )
+        logger.debug(f"{self.name} computing sample size")
+        z = self._compute_adjusted_z_(confidence, "sample size", repetition_multiplier)
+        assert (
+            self.absolute_error is not None
+        ), "absolute_error must be specified to compute sample size"
         return int(math.ceil((z / self.absolute_error)) ** 2)
 
     def compute_absolute_error(
@@ -113,7 +121,7 @@ class Measure:
         Returns:
             float: error
         """
-        logger.info(f"{self.name} computing absolute error")
+        logger.debug(f"{self.name} computing absolute error")
 
         z = self._compute_adjusted_z_(confidence, "absolute error")
         absolute_error = z / math.sqrt(sample_size)
@@ -128,7 +136,7 @@ class Measure:
         Returns:
             float: [0; 1]
         """
-        logger.info(f"{self.name} computing confidence")
+        logger.debug(f"{self.name} computing confidence")
 
         adjusted_sample_size = math.sqrt(sample_size)
         if self.measure_type != MeasureType.VARIANCE:
@@ -138,14 +146,14 @@ class Measure:
                 )
                 self.std = (self.value_range[1] - self.value_range[0]) / 4
 
-            assert self.std is not None, (
-                "std or value_range must be specified to compute confidence"
-            )
+            assert (
+                self.std is not None
+            ), "std or value_range must be specified to compute confidence"
             adjusted_sample_size = adjusted_sample_size / self.std
 
-        assert self.absolute_error is not None, (
-            "absolute_error must be specified to compute confidence"
-        )
+        assert (
+            self.absolute_error is not None
+        ), "absolute_error must be specified to compute confidence"
         confidence = __NORMAL__.cdf(adjusted_sample_size * self.absolute_error)
         logger.info(f"{self.name} obtained base confidence {confidence:.2%}")
         repetitions = self._get_adjusted_repetitions_()
