@@ -14,6 +14,7 @@ Here given the two measures, the objective is to know the minimum number of inst
 
 ```python
 from reeval import Evaluation, Measure, MeasureType
+from reeval.population import InfinitePopulation
 
 ai_generated = Measure(
     "ai_generated", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.02
@@ -23,7 +24,11 @@ text_length = Measure(
 )
 
 
-my_eval = Evaluation([ai_generated, text_length], confidence=0.95, max_comparisons=1)
+my_eval = Evaluation(
+    [ai_generated, text_length],
+    confidence=0.95,
+    population=InfinitePopulation(),
+)
 print(my_eval.compute_sample_size())
 ```
 
@@ -33,6 +38,7 @@ Here given the two measures and the sample size, the objective is to compute the
 
 ```python
 from reeval import Evaluation, Measure, MeasureType
+from reeval.population import InfinitePopulation
 
 ai_generated = Measure(
     "ai_generated", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.02
@@ -42,8 +48,12 @@ text_length = Measure(
 )
 
 
-my_eval = Evaluation([ai_generated, text_length], sample_size=300, max_comparisons=1)
-print(my_eval.compute_sample_size())
+my_eval = Evaluation(
+    [ai_generated, text_length],
+    sample_size=300,
+    population=InfinitePopulation(),
+)
+print(my_eval.compute_confidences())
 ```
 
 ### Absolute Error
@@ -52,6 +62,7 @@ Here given the two measures, the sample size and the confidence, the objective i
 
 ```python
 from reeval import Evaluation, Measure, MeasureType
+from reeval.population import InfinitePopulation
 
 ai_generated = Measure(
     "ai_generated", MeasureType.PROPORTION_BOOLEAN
@@ -62,7 +73,62 @@ text_length = Measure(
 
 
 my_eval = Evaluation(
-    [ai_generated, text_length], confidence=0.95, sample_size=300, max_comparisons=1
+    [ai_generated, text_length],
+    confidence=0.95,
+    sample_size=300,
+    population=InfinitePopulation(),
 )
 print(my_eval.compute_absolute_errors())
+```
+
+### Finite Population
+
+When sampling from a finite population, sample size requirements are reduced using Cochran's formula.
+
+```python
+from reeval import Evaluation, Measure, MeasureType
+from reeval.population import FinitePopulation
+
+ai_generated = Measure(
+    "ai_generated", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.02
+)
+
+my_eval = Evaluation(
+    [ai_generated],
+    confidence=0.95,
+    population=FinitePopulation(size=10000),
+)
+print(my_eval.compute_sample_size())
+```
+
+### Filtered Population
+
+When evaluating a subset of the population (e.g., only instances where a certain condition is true), use `FilteredPopulation` to account for the dependency between evaluations.
+
+```python
+from reeval import Evaluation, Measure, MeasureType, compute_global_sample_sizes
+from reeval.population import FinitePopulation
+
+# First evaluation on the full population
+ai_generated = Measure(
+    "ai_generated", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.02, empirical_value=0.3
+)
+full_eval = Evaluation(
+    [ai_generated],
+    confidence=0.99,
+    population=FinitePopulation(size=10000),
+)
+
+# Second evaluation only on AI-generated instances
+quality = Measure("quality", MeasureType.MEAN, absolute_error=0.1, value_range=(0, 10))
+filtered_pop = full_eval.population.filter_on(full_eval, ai_generated)
+filtered_eval = Evaluation(
+    [quality],
+    confidence=0.95,
+    population=filtered_pop,
+)
+
+# Compute sample sizes for all evaluations together
+sample_sizes = compute_global_sample_sizes([filtered_eval])
+print(sample_sizes)
 ```
