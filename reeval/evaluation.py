@@ -109,16 +109,16 @@ class Evaluation:
                     / (self.population.size - self.sample_size)
                 )
             case FilteredPopulation():
-                raise NotImplementedError()
-                logger.info(
-                    "adjusting for finite population size using Cohenn's formula"
-                )
-                return int(
-                    math.ceil(
+                if self.population.is_infinite():
+                    return self.sample_size
+                else:
+                    original_size = self.population.get_size()
+
+                    return (
                         self.sample_size
-                        / (1 + (self.sample_size - 1) / self.population.size)
+                        * (original_size - 1)
+                        / (original_size - self.sample_size)
                     )
-                )
 
     def compute_confidences(self) -> tuple[float, dict[str, float]]:
         """Compute the total confidence of the evaluation (AND of all statements) and individual (independent) confidence.
@@ -131,13 +131,13 @@ class Evaluation:
         confs = {}
         total_conf = 1
         sample_size = self.__get_adjusted_sample_size__()
+        match self.population:
+            case FilteredPopulation():
+                total_conf = self.population.filter_evaluation.compute_confidences()[0]
 
         for measure in self.measures:
-            before_repeats = measure.repetitions
-            measure.repetitions = measure.repetitions * self.max_comparisons
-            confidence = measure.compute_confidence(sample_size)
+            confidence = measure.compute_confidence(sample_size, self.max_comparisons)
             confs[measure.name] = confidence
-            measure.repetitions = before_repeats
             total_conf *= confidence
 
         return total_conf, confs
@@ -154,12 +154,16 @@ class Evaluation:
         errors = {}
         sample_size = self.__get_adjusted_sample_size__()
 
+        confidence = self.confidence
+        match self.population:
+            case FilteredPopulation():
+                confidence /= self.population.filter_evaluation.confidence
         for measure in self.measures:
-            before_repeats = measure.repetitions
-            measure.repetitions = total_repeats / measure.categories
-            error = measure.compute_absolute_error(sample_size, self.confidence)
+            repetition_multiplier = total_repeats / measure.categories
+            error = measure.compute_absolute_error(
+                sample_size, confidence, repetition_multiplier
+            )
             errors[measure.name] = error
-            measure.repetitions = before_repeats
 
         return errors
 

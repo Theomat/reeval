@@ -34,7 +34,7 @@ class Measure:
     Useless for the variance measure type.
     """
     value_range: Optional[Tuple[float, float]] = field(default=None)
-    """Range of values that the measure can take, this is only used when std is None in which case std is set to value_range/4.
+    """Range of values that the measure can take, this is only used when std is None in which case std is set to value_range/4 (or /2 for boolean and categorical).
     For proportion measures, this is theoretically the worst case, so it will yield conservative estimate.
     For a mean, it is a good approximation.
     """
@@ -63,6 +63,24 @@ class Measure:
             repetitions *= self.categories
         return repetitions
 
+    def _ensure_std_is_set_(self, target: str):
+        if self.std is None and self.value_range is not None:
+            match self.measure_type:
+                case (
+                    MeasureType.PROPORTION_BOOLEAN
+                    | MeasureType.PROPORTION_CATEGORICAL
+                ):
+                    self.std = (self.value_range[1] - self.value_range[0]) / 2
+                case _:
+                    logger.info(
+                        f"{self.name} filling std automatically with (max - min) / 4"
+                    )
+                    self.std = (self.value_range[1] - self.value_range[0]) / 4
+        else:
+            assert (
+                self.std is not None
+            ), f"std or value_range must be specified to compute {target}"
+
     def _compute_adjusted_z_(
         self, confidence: float, target: str, repetition_multiplier: int = 1
     ) -> float:
@@ -74,17 +92,9 @@ class Measure:
             logger.info(
                 f"{self.name} adjusted confidence from {confidence:.2%} to {1 - alpha:.2%} using Sickhart's formula"
             )
-        z = __NORMAL__.icdf(1 - alpha)
+        z = __NORMAL__.icdf(1 - alpha / 2)
         if self.measure_type != MeasureType.VARIANCE:
-            if self.std is None and self.value_range is not None:
-                logger.info(
-                    f"{self.name} filling std automatically with (max - min) / 4"
-                )
-                self.std = (self.value_range[1] - self.value_range[0]) / 4
-
-            assert (
-                self.std is not None
-            ), f"std or value_range must be specified to compute {target}"
+            self._ensure_std_is_set_(target)
             z = z * self.std
         return z
 
@@ -104,12 +114,10 @@ class Measure:
         assert (
             self.absolute_error is not None
         ), "absolute_error must be specified to compute sample size"
-        return int(math.ceil((z / self.absolute_error)) ** 2)
+        return int(math.ceil((z / self.absolute_error) ** 2))
 
     def compute_absolute_error(
-        self,
-        sample_size: int,
-        confidence: float,
+        self, sample_size: int, confidence: float, repetition_multiplier: int = 1
     ) -> float:
         """Compute absolute error of the measure.
         If the measure type is variance, this is instead a relative error.
@@ -123,11 +131,15 @@ class Measure:
         """
         logger.debug(f"{self.name} computing absolute error")
 
-        z = self._compute_adjusted_z_(confidence, "absolute error")
+        z = self._compute_adjusted_z_(
+            confidence, "absolute error", repetition_multiplier
+        )
         absolute_error = z / math.sqrt(sample_size)
         return absolute_error
 
-    def compute_confidence(self, sample_size: int) -> float:
+    def compute_confidence(
+        self, sample_size: int, repetition_multiplier: int = 1
+    ) -> float:
         """Compute the confidence level reached by the target sample size.
 
         Args:
@@ -140,23 +152,16 @@ class Measure:
 
         adjusted_sample_size = math.sqrt(sample_size)
         if self.measure_type != MeasureType.VARIANCE:
-            if self.std is None and self.value_range is not None:
-                logger.info(
-                    f"{self.name} filling std automatically with (max - min) / 4"
-                )
-                self.std = (self.value_range[1] - self.value_range[0]) / 4
+            self._ensure_std_is_set_("confidence")
 
-            assert (
-                self.std is not None
-            ), "std or value_range must be specified to compute confidence"
             adjusted_sample_size = adjusted_sample_size / self.std
 
         assert (
             self.absolute_error is not None
         ), "absolute_error must be specified to compute confidence"
         confidence = __NORMAL__.cdf(adjusted_sample_size * self.absolute_error)
-        logger.info(f"{self.name} obtained base confidence {confidence:.2%}")
-        repetitions = self._get_adjusted_repetitions_()
+        logger.info(f"{self.name} obtained base confidence {confidence:.4%}")
+        repetitions = self._get_adjusted_repetitions_() * repetition_multiplier
         alpha = 1 - confidence
         true_alpha = 1 - (1 - alpha) ** repetitions
         return 1 - true_alpha
