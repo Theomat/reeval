@@ -17,6 +17,7 @@ class MeasureType(StrEnum):
     PROPORTION_BOOLEAN = "proportion_boolean"
     PROPORTION_CATEGORICAL = "proportion_categorical"
     MEAN = "mean"
+    SUM = "sum"
     VARIANCE = "variance"
 
 
@@ -114,7 +115,10 @@ class Measure:
         assert (
             self.absolute_error is not None
         ), "absolute_error must be specified to compute sample size"
-        return int(math.ceil((z / self.absolute_error) ** 2))
+        raw_n = (z / self.absolute_error) ** 2
+        if self.measure_type == MeasureType.SUM:
+            raw_n = 1 / raw_n
+        return int(math.ceil(raw_n))
 
     def compute_absolute_error(
         self, sample_size: int, confidence: float, repetition_multiplier: int = 1

@@ -59,7 +59,7 @@ class Evaluation:
             case FinitePopulation():
                 max_sample_size = self._raw_sample_size_(self.confidence)
                 logger.info(
-                    "adjusting for finite population size using Cohenn's formula"
+                    "adjusting for finite population size using Cochran's formula"
                 )
                 return int(
                     math.ceil(
@@ -101,7 +101,7 @@ class Evaluation:
                 return self.sample_size
             case FinitePopulation():
                 logger.info(
-                    "adjusting for finite population size using Cohenn's formula"
+                    "adjusting for finite population size using Cochran's formula"
                 )
                 return (
                     self.sample_size

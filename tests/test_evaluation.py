@@ -99,7 +99,7 @@ class TestComputeSampleSize:
             confidence=0.95,
         )
         n0 = inf_eval.compute_sample_size()
-        # Apply Cohenn's formula manually
+        # Apply Cochran's formula manually
         expected = int(math.ceil(n0 / (1 + (n0 - 1) / pop_size)))
         assert evaluation.compute_sample_size() == expected
 
