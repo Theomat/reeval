@@ -89,9 +89,9 @@ class Measure:
         alpha = 1 - confidence
         repetitions = self._get_adjusted_repetitions_() * repetition_multiplier
         if repetitions > 1:
-            alpha = 1 - math.pow(1 - alpha, 1 / repetitions)
+            alpha = alpha / repetitions
             logger.info(
-                f"{self.name} adjusted confidence from {confidence:.2%} to {1 - alpha:.2%} using Sickhart's formula"
+                f"{self.name} adjusted confidence from {confidence:.2%} to {1 - alpha:.2%} using Bonferroni's formula"
             )
         z = __NORMAL__.icdf(1 - alpha / 2)
         if self.measure_type != MeasureType.VARIANCE:
@@ -167,5 +167,5 @@ class Measure:
         logger.info(f"{self.name} obtained base confidence {confidence:.4%}")
         repetitions = self._get_adjusted_repetitions_() * repetition_multiplier
         alpha = 1 - confidence
-        true_alpha = 1 - (1 - alpha) ** repetitions
+        true_alpha = alpha * repetitions
         return 1 - true_alpha
