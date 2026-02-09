@@ -107,9 +107,9 @@ class TestComputeAdjustedZ:
             repetitions=3,
         )
         z = measure._compute_adjusted_z_(0.95, "test")
-        # With repetitions, alpha is adjusted using Sickhart's formula
+        # With repetitions, alpha is adjusted using Bonferroni's formula
         alpha = 1 - 0.95
-        adjusted_alpha = 1 - math.pow(1 - alpha, 1 / 3)
+        adjusted_alpha = alpha / 3
         # Two-tailed: use 1 - adjusted_alpha / 2
         expected_z = stats.Normal().icdf(1 - adjusted_alpha / 2) * 0.5
         assert math.isclose(z, expected_z, rel_tol=1e-6)
@@ -181,9 +181,9 @@ class TestComputeSampleSize:
 
     def test_sample_size_with_repetitions(self, measure_with_repetitions):
         sample_size = measure_with_repetitions.compute_sample_size(0.95)
-        # With repetitions, the confidence is adjusted
+        # With repetitions, the confidence is adjusted using Bonferroni's formula
         alpha = 1 - 0.95
-        adjusted_alpha = 1 - math.pow(1 - alpha, 1 / 3)
+        adjusted_alpha = alpha / 3
         # Two-tailed: use 1 - adjusted_alpha / 2, std=0.5 for boolean proportion
         z = stats.Normal().icdf(1 - adjusted_alpha / 2) * 0.5
         expected = int(math.ceil((z / 0.05) ** 2))
@@ -249,9 +249,9 @@ class TestComputeConfidence:
         # Base confidence calculation (std=0.5 for boolean proportion)
         adjusted = math.sqrt(1000) / 0.5
         base_conf = stats.Normal().cdf(adjusted * 0.05)
-        # Adjust for repetitions
+        # Adjust for repetitions using Bonferroni's formula
         alpha = 1 - base_conf
-        true_alpha = 1 - (1 - alpha) ** 3
+        true_alpha = alpha * 3
         expected = 1 - true_alpha
         assert math.isclose(confidence, expected, rel_tol=1e-6)
 
