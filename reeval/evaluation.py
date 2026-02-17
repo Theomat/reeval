@@ -15,10 +15,12 @@ __all__ = ["Evaluation"]
 
 
 def apply_cochran_finite_pop(pop_size: int, n0: int) -> int:
+    logging.debug(f"cochran finite pop. -> (pop_size={pop_size} n0={n0})")
     return int(math.ceil(n0 / (1 + (n0 - 1) / pop_size)))
 
 
 def reverse_cochran_finite_pop(pop_size: int, n: int) -> int:
+    logging.debug(f"cochran finite pop. <- (pop_size={pop_size} n={n})")
     return n * (pop_size - 1) / (pop_size - n)
 
 
