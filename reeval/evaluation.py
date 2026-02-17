@@ -4,7 +4,7 @@ from typing import Optional
 import math
 
 from reeval.population import FilteredPopulation, FinitePopulation, InfinitePopulation
-from reeval.measure import Measure
+from reeval.measures import Measure
 
 from reeval.population import Population
 
@@ -14,33 +14,36 @@ logger = logging.getLogger(__name__)
 __all__ = ["Evaluation"]
 
 
+def apply_cochran_finite_pop(pop_size: int, n0: int) -> int:
+    return int(math.ceil(n0 / (1 + (n0 - 1) / pop_size)))
+
+
+def reverse_cochran_finite_pop(pop_size: int, n: int) -> int:
+    return n * (pop_size - 1) / (pop_size - n)
+
+
 @dataclass(unsafe_hash=True)
 class Evaluation:
     measures: tuple[Measure, ...]
     """The measures present in this evaluation."""
     population: Population = field(default_factory=InfinitePopulation)
     """population the instances are sampled from."""
-    max_comparisons: int = field(default=1)
-    """The maximum number of times this evaluation will be used to make comparisons, ideally you want that by using an AND of all the comparisons you reach the target confidence level."""
+    repeats: int = field(default=1)
+    """The maximum number of times this evaluation will be repeated."""
     confidence: Optional[float] = field(default=None)
     """Confidence level in [0;1] of the evaluation assuming it is the confidence that all statements about all measures are true at the same time and not independently."""
-    sample_size: Optional[int] = field(default=None)
-    """Number of samples taken for this evaluation."""
 
     def __post_init__(self):
         self.measures = tuple(self.measures)
 
     def _get_total_repeats_(self) -> int:
-        return (
-            sum(m._get_adjusted_repetitions_() for m in self.measures)
-            * self.max_comparisons
-        )
+        return sum(m.repeats for m in self.measures) * self.repeats
 
     def _raw_sample_size_(self, confidence: float) -> int:
         """Compute the sample size as if pop. was infinite for the given confidence."""
         max_sample_size = 0
+        repetition_multiplier = self._get_total_repeats_()
         for measure in self.measures:
-            repetition_multiplier = self._get_total_repeats_() / measure.categories
             sample_size = measure.compute_sample_size(confidence, repetition_multiplier)
             max_sample_size = max(max_sample_size, sample_size)
         return max_sample_size
@@ -58,20 +61,15 @@ class Evaluation:
                 return self._raw_sample_size_(self.confidence)
             case FinitePopulation():
                 max_sample_size = self._raw_sample_size_(self.confidence)
-                logger.info(
+                logger.debug(
                     "adjusting for finite population size using Cochran's formula"
                 )
-                return int(
-                    math.ceil(
-                        max_sample_size
-                        / (1 + (max_sample_size - 1) / self.population.size)
-                    )
+                return apply_cochran_finite_pop(
+                    self.population.get_size(), max_sample_size
                 )
             case FilteredPopulation():
                 logger.debug("adjusting for filtered population")
-                confidence = (
-                    self.confidence / self.population.filter_evaluation.confidence
-                )
+                confidence = self.confidence / self.population.filter_confidence
                 assert (
                     confidence < 1
                 ), "confidence must be lost from a subsequent evaluation!"
@@ -85,39 +83,23 @@ class Evaluation:
                 if self.population.is_infinite():
                     return self._raw_sample_size_()
                 else:
-                    return int(
-                        math.ceil(
-                            max_sample_size
-                            / (1 + (max_sample_size - 1) / original_size)
-                        )
-                    )
+                    return apply_cochran_finite_pop(max_sample_size, original_size)
 
-    def __get_adjusted_sample_size__(self) -> int:
+    def __get_adjusted_sample_size__(self, sample_size: int) -> int:
         """Inverse sample size corrections to get to the raw uncorrected number."""
-        assert self.sample_size is not None, "sample size must be specified"
-
         match self.population:
             case InfinitePopulation():
-                return self.sample_size
+                return sample_size
             case FinitePopulation():
-                logger.info(
-                    "adjusting for finite population size using Cochran's formula"
-                )
-                return (
-                    self.sample_size
-                    * (self.population.size - 1)
-                    / (self.population.size - self.sample_size)
+                return reverse_cochran_finite_pop(
+                    self.population.get_size(), sample_size
                 )
             case FilteredPopulation():
                 if self.population.is_infinite():
-                    return self.sample_size
+                    return sample_size
                 else:
-                    original_size = self.population.get_size()
-
-                    return (
-                        self.sample_size
-                        * (original_size - 1)
-                        / (original_size - self.sample_size)
+                    return reverse_cochran_finite_pop(
+                        self.population.get_size(), sample_size
                     )
 
     def compute_confidences(self) -> tuple[float, dict[str, float]]:
@@ -136,7 +118,7 @@ class Evaluation:
                 total_conf = self.population.filter_evaluation.compute_confidences()[0]
 
         for measure in self.measures:
-            confidence = measure.compute_confidence(sample_size, self.max_comparisons)
+            confidence = measure.compute_confidence(sample_size, self.repeats)
             confs[measure.name] = confidence
             total_conf *= confidence
 
@@ -157,9 +139,9 @@ class Evaluation:
         confidence = self.confidence
         match self.population:
             case FilteredPopulation():
-                confidence /= self.population.filter_evaluation.confidence
+                confidence /= self.population.filter_confidence
+        repetition_multiplier = total_repeats
         for measure in self.measures:
-            repetition_multiplier = total_repeats / measure.categories
             error = measure.compute_absolute_error(
                 sample_size, confidence, repetition_multiplier
             )
@@ -192,9 +174,10 @@ def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int
                 else:
                     parent_eval = eval.population.filter_evaluation
                     compute_sample_size_for_eval(parent_eval)
-                    least_ratio = 1
-                    for m in eval.population.filter_measures:
-                        least_ratio *= m.empirical_value - m.absolute_error
+                    least_ratio = (
+                        eval.population.filter_value
+                        - eval.population.filter_absolute_error
+                    )
                     assert (
                         least_ratio > 0
                     ), "Worst ratio of population with specified property is 0 so sampling cannot be guaranteed, suggestion: decrease the absolute error"
