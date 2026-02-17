@@ -23,7 +23,7 @@ __STUDENT__ = stats.t
 
 
 def __student_icdf__(alpha: float, sample_size: int) -> float:
-    return 1 - __STUDENT__.isf(alpha, df=sample_size - 1)
+    return __STUDENT__.isf(alpha, df=sample_size - 1)
 
 
 def apply_bonferroni(alpha: float, repetitions: int) -> float:
