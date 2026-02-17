@@ -13,7 +13,7 @@ from reeval.measures.measure import (
 __all__ = ["VarianceMeasure"]
 
 
-@dataclass
+@dataclass(eq=False)
 class VarianceMeasure(Measure):
     relative_error: float | None = field(default=None)
     """Relative error of the measure.

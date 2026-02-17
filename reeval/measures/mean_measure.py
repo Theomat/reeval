@@ -17,7 +17,7 @@ from scipy import stats
 __all__ = ["MeanMeasure"]
 
 
-@dataclass
+@dataclass(eq=False)
 class MeanMeasure(Measure):
     std: float | None = field(default=None)
     """The standard deviation of the measure at hand.

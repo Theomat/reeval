@@ -14,7 +14,7 @@ from scipy import stats
 __all__ = ["RankMeasure"]
 
 
-@dataclass
+@dataclass(eq=False)
 class RankMeasure(Measure):
     max_rank: int = field(default=2)
     """The number of items being ranked (rank values in 1..k).

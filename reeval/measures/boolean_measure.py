@@ -19,7 +19,7 @@ __all__ = ["BooleanMeasure", "CategoricalMeasures"]
 __DEFAULT_STD__ = 0.5**2
 
 
-@dataclass
+@dataclass(eq=False)
 class BooleanMeasure(Measure):
     std: float | None = field(default=None)
     """The standard deviation of the measure at hand.
