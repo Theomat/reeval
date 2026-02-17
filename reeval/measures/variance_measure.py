@@ -53,3 +53,9 @@ class VarianceMeasure(Measure):
         confidence = normal_cdf(adjusted_sample_size * self.relative_error)
         alpha = reverse_bonferroni(1 - confidence, self.repeats * repetition_multiplier)
         return 1 - alpha
+
+    def test_different(
+        self, sample1: list[bool], sample2: list[bool], confidence: float = 0.95
+    ) -> tuple[float, float, tuple[float, float]]:
+        """Not implemented."""
+        raise NotImplementedError()
