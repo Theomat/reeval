@@ -77,6 +77,11 @@ class MeanMeasure(Measure):
         """
         result = stats.ttest_ind(sample1, sample2, equal_var=False)
         p_value = result.pvalue
+        # When both samples have zero variance (e.g. constant values),
+        # ttest_ind returns NaN and mannwhitneyu is unreliable.
+        # Treat as no difference: p=1, A12=0.5, degenerate CI.
+        if math.isnan(p_value):
+            return 1.0, 0.5, (0.5, 0.5)
 
         n1, n2 = len(sample1), len(sample2)
         # Vargha and Delaney's A12 via Mann-Whitney U
