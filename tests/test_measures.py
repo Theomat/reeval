@@ -113,13 +113,11 @@ class TestSampleSizeDecreasesWithTolerance:
         m_loose = VarianceMeasure(name="v", relative_error=0.10)
         assert m_tight.compute_sample_size(0.95) > m_loose.compute_sample_size(0.95)
 
-    @pytest.mark.xfail(reason="RankMeasure.std uses self.k instead of self.max_rank")
     def test_rank_measure(self):
         m_tight = RankMeasure(name="r", max_rank=10, absolute_error=0.1)
         m_loose = RankMeasure(name="r", max_rank=10, absolute_error=1.0)
         assert m_tight.compute_sample_size(0.95) > m_loose.compute_sample_size(0.95)
 
-    @pytest.mark.xfail(reason="student_sample_size does not converge (infinite loop)")
     def test_mean_measure_unknown_std(self):
         m_tight = MeanMeasure(name="m", absolute_error=0.01)
         m_loose = MeanMeasure(name="m", absolute_error=0.10)
@@ -139,7 +137,6 @@ class TestSampleSizeIncreasesWithUncertainty:
         m_high = MeanMeasure(name="m", std=2.0, absolute_error=0.1)
         assert m_high.compute_sample_size(0.95) >= m_low.compute_sample_size(0.95)
 
-    @pytest.mark.xfail(reason="RankMeasure.std uses self.k instead of self.max_rank")
     def test_rank_higher_max_rank_needs_more_samples(self):
         m_small = RankMeasure(name="r", max_rank=3, absolute_error=0.5)
         m_large = RankMeasure(name="r", max_rank=20, absolute_error=0.5)
@@ -218,7 +215,6 @@ class TestComputeAbsoluteError:
         with pytest.raises(NotImplementedError):
             variance_measure.compute_absolute_error(sample_size=100, confidence=0.95)
 
-    @pytest.mark.xfail(reason="RankMeasure.std uses self.k instead of self.max_rank")
     def test_rank_absolute_error_decreases_with_sample_size(self):
         m = RankMeasure(name="rank", max_rank=10, absolute_error=0.5)
         err_small = m.compute_absolute_error(sample_size=50, confidence=0.95)
@@ -340,7 +336,6 @@ class TestTestDifferent:
         p_reverse, _, _ = testable_measure.test_different(s2, s1)
         assert abs(p_forward - p_reverse) < 1e-10
 
-    @pytest.mark.xfail(reason="RankMeasure.std uses self.k instead of self.max_rank")
     def test_rank_test_different_p_in_range(self):
         m = RankMeasure(name="rank", max_rank=10, absolute_error=0.5)
         random.seed(42)
