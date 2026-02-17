@@ -26,7 +26,7 @@ class RankMeasure(Measure):
     @property
     def std(self) -> float:
         """Standard deviation of a discrete uniform distribution over {1, ..., k}."""
-        return math.sqrt((self.k**2 - 1) / 12)
+        return math.sqrt((self.max_rank**2 - 1) / 12)
 
     def compute_sample_size(self, confidence: float, repetition_multiplier: int = 1):
         alpha = 1 - confidence
