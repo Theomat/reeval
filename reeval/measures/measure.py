@@ -45,7 +45,7 @@ def normal_sample_size(alpha: float, std: float, absolute_error: float) -> int:
 
 def normal_z(alpha: float) -> float:
     logging.debug(f"normal Z <- (alpha={alpha})")
-    return __NORMAL__.icdf(alpha / 2)
+    return __NORMAL__.icdf(1 - alpha / 2)
 
 
 def normal_cdf(value: float) -> float:
@@ -67,7 +67,7 @@ def student_sample_size(alpha: float, absolute_error: float) -> float:
 
 def student_z(alpha: float, sample_size: int) -> float:
     logging.debug(f"student Z <- (alpha={alpha} sample_size={sample_size})")
-    return __student_icdf__(alpha / 2, sample_size)
+    return __student_icdf__(1 - alpha / 2, sample_size)
 
 
 def student_cdf(value: float, sample_size: int) -> float:
