@@ -95,3 +95,41 @@ class MeanMeasure(Measure):
         ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
 
         return p_value, a12, ci
+
+    def test_different_paired_data(
+        self, sample1: list[float], sample2: list[float], confidence: float = 0.95
+    ) -> tuple[float, float, tuple[float, float]]:
+        """Applies a two-tailed test for two samples where data is paired of the given measure.
+        It checks if the parameters are the same.
+        It relies on Wilcoxon's test.
+
+        Args:
+            sample1 (list[float]):
+            sample2 (list[float]):
+            confidence (float): confidence level for the CI
+
+        Returns:
+            float: the p-value obtained
+            float: effect size (Vargha and Delaney's A12)
+            tuple[float, float]: confidence interval of A12
+        """
+        result = stats.wilcoxon(sample1, sample2)
+        p_value = result.pvalue
+        # When both samples have zero variance (e.g. constant values),
+        # ttest_ind returns NaN and mannwhitneyu is unreliable.
+        # Treat as no difference: p=1, A12=0.5, degenerate CI.
+        if math.isnan(p_value):
+            return 1.0, 0.5, (0.5, 0.5)
+
+        n1, n2 = len(sample1), len(sample2)
+        # Vargha and Delaney's A12 via Mann-Whitney U
+        u_result = stats.mannwhitneyu(sample1, sample2, alternative="two-sided")
+        a12 = u_result.statistic / (n1 * n2)
+
+        # Normal approximation CI for A12
+        alpha = 1 - confidence
+        z = stats.norm.ppf(1 - alpha / 2)
+        se = math.sqrt((n1 + n2 + 1) / (12 * n1 * n2))
+        ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
+
+        return p_value, a12, ci
