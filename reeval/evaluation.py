@@ -117,7 +117,7 @@ class Evaluation:
         sample_size = self.__get_adjusted_sample_size__()
         match self.population:
             case FilteredPopulation():
-                total_conf = self.population.filter_evaluation.compute_confidences()[0]
+                total_conf = self.population.filter_confidence
 
         for measure in self.measures:
             confidence = measure.compute_confidence(sample_size, self.repeats)
@@ -157,7 +157,7 @@ def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int
     Ensures that downstream evaluations reach the desired confidence.
 
     Args:
-        evals (list[Evaluation]): the list of evaluations (the leaves are enough, it needs not to be a tree though merge operators are not yet supported)
+        evals (list[Evaluation]): the list of evaluations
 
     Returns:
         dict[Evaluation, int]: sample size for all the evaluations
@@ -171,11 +171,7 @@ def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int
 
         match eval.population:
             case FilteredPopulation():
-                if eval.population.is_infinite():
-                    raise NotImplementedError()
-                else:
-                    parent_eval = eval.population.filter_evaluation
-                    compute_sample_size_for_eval(parent_eval)
+                if not eval.population.is_infinite():
                     least_ratio = (
                         eval.population.filter_value
                         - eval.population.filter_absolute_error
@@ -185,18 +181,21 @@ def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int
                     ), "Worst ratio of population with specified property is 0 so sampling cannot be guaranteed, suggestion: decrease the absolute error"
                     new_size = min(
                         int(math.ceil(sample_size / least_ratio)),
-                        parent_eval.population.get_size(),
+                        eval.population.source_population.get_size(),
                     )
                     logger.info(
                         f"going from {sample_size} to {new_size} with least ratio = {least_ratio}"
                     )
-                    if new_size > all_evals[parent_eval]:
-                        all_evals[parent_eval] = new_size
-                        compute_sample_size_for_eval(parent_eval)
+                    if new_size > all_evals[eval]:
+                        all_evals[eval] = new_size
             case _:
                 pass
         all_evals[eval] = sample_size
 
-    for ev in evals:
-        compute_sample_size_for_eval(ev)
+    while True:
+        old = all_evals.copy()
+        for ev in evals:
+            compute_sample_size_for_eval(ev)
+        if all(old[ev] == all_evals[ev] for ev in evals):
+            break
     return all_evals
