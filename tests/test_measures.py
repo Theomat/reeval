@@ -346,6 +346,166 @@ class TestTestDifferent:
 
 
 # =========================================================================
+# 5b. Effect size properties
+# =========================================================================
+
+
+class TestEffectSizeA12:
+    """Properties of Vargha-Delaney A12 (MeanMeasure and RankMeasure)."""
+
+    @pytest.fixture(params=["mean", "rank"])
+    def a12_measure(self, request):
+        factories = {
+            "mean": lambda: MeanMeasure(name="m", std=1.0, absolute_error=0.1),
+            "rank": lambda: RankMeasure(name="r", max_rank=10, absolute_error=0.5),
+        }
+        return factories[request.param]()
+
+    def test_a12_bounded(self, a12_measure):
+        """A12 must lie in [0, 1]."""
+        random.seed(42)
+        s1 = [random.gauss(0, 1) for _ in range(50)]
+        s2 = [random.gauss(1, 1) for _ in range(50)]
+        _, a12, _ = a12_measure.test_different(s1, s2)
+        assert 0 <= a12 <= 1
+
+    def test_a12_no_effect_for_identical_samples(self, a12_measure):
+        """Identical distributions should yield A12 ≈ 0.5."""
+        random.seed(10)
+        s1 = [random.gauss(5, 1) for _ in range(200)]
+        s2 = [random.gauss(5, 1) for _ in range(200)]
+        _, a12, _ = a12_measure.test_different(s1, s2)
+        assert (
+            abs(a12 - 0.5) < 0.1
+        ), f"Expected A12 ≈ 0.5 for similar samples, got {a12}"
+
+    def test_a12_large_effect_for_separated_samples(self, a12_measure):
+        """Clearly separated samples should yield A12 near 0 or 1."""
+        random.seed(77)
+        s1 = [random.gauss(0, 0.1) for _ in range(100)]
+        s2 = [random.gauss(100, 0.1) for _ in range(100)]
+        _, a12, _ = a12_measure.test_different(s1, s2)
+        assert a12 > 0.9 or a12 < 0.1, f"Expected extreme A12, got {a12}"
+
+    def test_a12_antisymmetry(self, a12_measure):
+        """Swapping samples: A12_forward + A12_reverse ≈ 1."""
+        random.seed(33)
+        s1 = [random.gauss(0, 1) for _ in range(60)]
+        s2 = [random.gauss(2, 1) for _ in range(60)]
+        _, a12_fwd, _ = a12_measure.test_different(s1, s2)
+        _, a12_rev, _ = a12_measure.test_different(s2, s1)
+        assert (
+            abs((a12_fwd + a12_rev) - 1.0) < 1e-10
+        ), f"A12 antisymmetry violated: {a12_fwd} + {a12_rev} != 1"
+
+    def test_a12_ci_contains_point_estimate(self, a12_measure):
+        """The confidence interval should contain the A12 point estimate."""
+        random.seed(21)
+        s1 = [random.gauss(0, 1) for _ in range(80)]
+        s2 = [random.gauss(1, 1) for _ in range(80)]
+        _, a12, (lo, hi) = a12_measure.test_different(s1, s2)
+        assert lo <= a12 <= hi, f"CI [{lo}, {hi}] does not contain A12={a12}"
+
+    def test_a12_ci_bounded(self, a12_measure):
+        """A12 confidence interval must be within [0, 1]."""
+        random.seed(99)
+        s1 = [random.gauss(0, 1) for _ in range(50)]
+        s2 = [random.gauss(0, 1) for _ in range(50)]
+        _, _, (lo, hi) = a12_measure.test_different(s1, s2)
+        assert 0 <= lo <= hi <= 1
+
+    def test_a12_ci_narrows_with_more_samples(self, a12_measure):
+        """Larger samples should produce a tighter CI."""
+        random.seed(55)
+        s1_small = [random.gauss(0, 1) for _ in range(30)]
+        s2_small = [random.gauss(1, 1) for _ in range(30)]
+        _, _, (lo_s, hi_s) = a12_measure.test_different(s1_small, s2_small)
+
+        random.seed(55)
+        s1_large = [random.gauss(0, 1) for _ in range(300)]
+        s2_large = [random.gauss(1, 1) for _ in range(300)]
+        _, _, (lo_l, hi_l) = a12_measure.test_different(s1_large, s2_large)
+
+        assert (hi_l - lo_l) < (hi_s - lo_s), "CI should narrow with more samples"
+
+
+class TestEffectSizeOddsRatio:
+    """Properties of the odds ratio effect size (BooleanMeasure)."""
+
+    @pytest.fixture
+    def bool_measure(self):
+        return BooleanMeasure(name="b", absolute_error=0.05)
+
+    def test_or_non_negative(self, bool_measure):
+        """Odds ratio must be >= 0."""
+        random.seed(42)
+        s1 = [random.choice([True, False]) for _ in range(80)]
+        s2 = [random.choice([True, False]) for _ in range(80)]
+        _, odds_ratio, _ = bool_measure.test_different(s1, s2)
+        assert odds_ratio >= 0
+
+    def test_or_no_effect_for_identical_samples(self, bool_measure):
+        """Identical samples should yield OR = 1."""
+        s = [True, False, True, True, False] * 20
+        _, odds_ratio, _ = bool_measure.test_different(s, s)
+        assert odds_ratio == pytest.approx(
+            1.0
+        ), f"Expected OR=1 for identical samples, got {odds_ratio}"
+
+    def test_or_large_effect_for_opposite_samples(self, bool_measure):
+        """Completely opposite boolean samples should yield extreme OR."""
+        s1 = [True] * 50 + [False] * 5
+        s2 = [False] * 50 + [True] * 5
+        _, odds_ratio, _ = bool_measure.test_different(s1, s2)
+        assert (
+            odds_ratio > 10 or odds_ratio < 0.1
+        ), f"Expected extreme OR for opposite samples, got {odds_ratio}"
+
+    def test_or_reciprocal_on_swap(self, bool_measure):
+        """Swapping samples: OR_forward ≈ 1 / OR_reverse."""
+        random.seed(7)
+        s1 = [random.choice([True, False]) for _ in range(100)]
+        s2 = [True] * 70 + [False] * 30
+        _, or_fwd, _ = bool_measure.test_different(s1, s2)
+        _, or_rev, _ = bool_measure.test_different(s2, s1)
+        if (
+            or_fwd > 0
+            and or_rev > 0
+            and math.isfinite(or_fwd)
+            and math.isfinite(or_rev)
+        ):
+            assert or_fwd * or_rev == pytest.approx(
+                1.0, abs=1e-6
+            ), f"OR reciprocal violated: {or_fwd} * {or_rev} != 1"
+
+    def test_or_ci_contains_point_estimate(self, bool_measure):
+        """The CI should contain the odds ratio point estimate."""
+        random.seed(15)
+        s1 = [random.choice([True, False]) for _ in range(100)]
+        s2 = [random.choice([True, False]) for _ in range(100)]
+        _, odds_ratio, (lo, hi) = bool_measure.test_different(s1, s2)
+        assert (
+            lo <= odds_ratio <= hi
+        ), f"CI [{lo}, {hi}] does not contain OR={odds_ratio}"
+
+    def test_or_ci_lower_le_upper(self, bool_measure):
+        """CI lower bound must be <= upper bound."""
+        random.seed(88)
+        s1 = [random.choice([True, False]) for _ in range(60)]
+        s2 = [random.choice([True, False]) for _ in range(60)]
+        _, _, (lo, hi) = bool_measure.test_different(s1, s2)
+        assert lo <= hi
+
+    def test_or_ci_with_zero_cell(self, bool_measure):
+        """When a contingency table cell is zero, CI should be (0, inf)."""
+        s1 = [True] * 50
+        s2 = [False] * 50
+        _, _, (lo, hi) = bool_measure.test_different(s1, s2)
+        assert lo == 0.0
+        assert hi == math.inf
+
+
+# =========================================================================
 # 6. CategoricalMeasures – factory function properties
 # =========================================================================
 
