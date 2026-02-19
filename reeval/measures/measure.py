@@ -5,10 +5,13 @@ import math
 
 from scipy import stats
 
+from reeval.error_type import ErrorType
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "Measure",
+    "ErrorType",
     "apply_bonferroni",
     "reverse_bonferroni",
     "normal_sample_size",
@@ -85,13 +88,18 @@ class Measure(ABC):
 
     @abstractmethod
     def compute_sample_size(
-        self, confidence: float, repetition_multiplier: int = 1
+        self,
+        error: float,
+        error_type: ErrorType = ErrorType.TYPE_I,
+        repetition_multiplier: int = 1,
     ) -> int:
-        """Compute the sample size to reach the desired confidence level.
+        """Compute the sample size to reach the desired error level.
         Relies on the Central Limit Theorem.
 
         Args:
-            confidence (float): [0; 1]
+            error (float): error rate in [0; 1]; interpreted as α (TYPE_I) or β (TYPE_II)
+            error_type (ErrorType): whether to control Type I (false positive) or
+                Type II (false negative / power) error
 
         Returns:
             int: sample size required
@@ -100,14 +108,20 @@ class Measure(ABC):
 
     @abstractmethod
     def compute_absolute_error(
-        self, sample_size: int, confidence: float, repetition_multiplier: int = 1
+        self,
+        sample_size: int,
+        error: float,
+        error_type: ErrorType = ErrorType.TYPE_I,
+        repetition_multiplier: int = 1,
     ) -> float:
         """Compute absolute error of the measure.
         Relies on the Central Limit Theorem.
 
         Args:
             sample_size (int): sample size used
-            confidence (float): [0; 1]
+            error (float): error rate in [0; 1]; interpreted as α (TYPE_I) or β (TYPE_II)
+            error_type (ErrorType): whether to control Type I (false positive) or
+                Type II (false negative / power) error
 
         Returns:
             float: absolute error
@@ -115,14 +129,19 @@ class Measure(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def compute_confidence(
-        self, sample_size: int, repetition_multiplier: int = 1
+    def compute_error_probability(
+        self,
+        sample_size: int,
+        error_type: ErrorType = ErrorType.TYPE_I,
+        repetition_multiplier: int = 1,
     ) -> float:
-        """Compute the confidence level reached by the target sample size.
+        """Compute the confidence level (TYPE_I) or power (TYPE_II) reached by the target sample size.
         Relies on the Central Limit Theorem.
 
         Args:
             sample_size (int): sample size used
+            error_type (ErrorType): TYPE_I returns confidence level 1 - α;
+                TYPE_II returns power 1 - β
 
         Returns:
             float: [0; 1]
@@ -131,7 +150,11 @@ class Measure(ABC):
 
     @abstractmethod
     def test_different(
-        self, sample1: list[bool], sample2: list[bool], confidence: float = 0.95
+        self,
+        sample1: list[bool],
+        sample2: list[bool],
+        error: float = 0.05,
+        error_type: ErrorType = ErrorType.TYPE_I,
     ) -> tuple[float, float, tuple[float, float]]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
@@ -139,6 +162,10 @@ class Measure(ABC):
         Args:
             sample1 (list[float]):
             sample2 (list[float]):
+            error (float): error rate for the effect size CI; interpreted as α (TYPE_I)
+                or β (TYPE_II)
+            error_type (ErrorType): whether to control Type I (false positive) or
+                Type II (false negative / power) error
 
         Returns:
             float: the p-value obtained
