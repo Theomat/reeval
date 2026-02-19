@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["BooleanMeasure", "CategoricalMeasures"]
 
 
-__DEFAULT_STD__ = 0.5**2
+__DEFAULT_STD__ = 0.5
 
 
 @dataclass(eq=False)
