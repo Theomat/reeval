@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
-import math
+
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Population", "InfinitePopulation", "FilteredPopulation"]
+__all__ = ["Population", "InfinitePopulation"]
 
 
 class Population(ABC):
@@ -17,6 +17,9 @@ class Population(ABC):
     def get_size(self) -> int:
         """Return the size of this population if this population is infinite returns a negative value."""
         raise NotImplementedError()
+
+    # def filter(self, measure: BooleanMeasure, empirical_proportion: float, error: float, error_type: ErrorType = ErrorType.TYPE_I) -> 'FilteredPopulation':
+    #     return FilteredPopulation(self, (error, error_type), measure, empirical_proportion)
 
 
 @dataclass(frozen=True)
@@ -38,28 +41,31 @@ class InfinitePopulation(Population):
         return -1
 
 
-@dataclass(unsafe_hash=True)
-class FilteredPopulation(Population):
-    source_population: Population
-    filter_confidence: float
-    filter_value: float
-    filter_absolute_error: float
+# @dataclass(unsafe_hash=True)
+# class FilteredPopulation(Population):
+#     source_population: Population
+#     error_control: tuple[float, ErrorType]
+#     filter_measure: BooleanMeasure
+#     empirical_proportion: float
 
-    def get_size(self):
-        """Produces a conservative estimate of the size of this filtered population."""
-        if self.source_population.is_infinite():
-            return -1
-        else:
-            source_size = self.source_population.get_size()
-            logger.info(
-                f"computing conservative estimate of pop. size from original size= {source_size}"
-            )
-            result = int(
-                math.ceil(
-                    source_size * (self.filter_value + self.filter_absolute_error)
-                )
-            )
-            logger.info(
-                f"conservative estimate of ratio = {self.filter_value + self.filter_absolute_error} to size = {result}"
-            )
-            return result
+#     def get_size(self):
+#         """Produces a conservative estimate of the size of this filtered population."""
+#         if self.source_population.is_infinite():
+#             return -1
+#         else:
+#             source_size = self.source_population.get_size()
+#             result = int(
+#                 math.ceil(
+#                     source_size * (self.empirical_proportion + self.filter_measure.absolute_error)
+#                 )
+#             )
+#             logger.debug(
+#                 f"conservative estimate of ratio = {self.empirical_proportion + self.filter_measure.absolute_error} to size = {result} from original size= {source_size}"
+#             )
+#             return result
+
+#     def adjust_error(self, error: float, error_type: ErrorType = ErrorType.TYPE_I) -> float:
+#         filter_error, filter_type = self.error_control
+#         if error_type == filter_type:
+#             return error - filter_error
+#         return error
