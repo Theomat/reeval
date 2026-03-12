@@ -1,6 +1,7 @@
 # reeval — Reliable and Efficient EVALuations
 
 **reeval** is a Python library for computing statistically-grounded sample sizes and confidence guarantees for empirical evaluations and benchmarks. It treats an evaluation as a random sample drawn from a population and provides principled, formal guarantees via the Central Limit Theorem, Bonferroni correction, and Cochran's finite-population formula.
+It follows and implement every guideline mentioned in [A Hitchhiker's guide to statistical tests for assessing randomized algorithms in software engineering](https://doi.org/10.1002/stvr.1486).
 
 ---
 
@@ -68,7 +69,7 @@ The library supports four measure types (boolean, mean, rank, variance), multipl
 ## Installation
 
 ```bash
-pip install reeval
+pip install git+https://github.com/Theomat/reeval.git
 ```
 
 **Requirements**: Python >= 3.11, SciPy >= 1.17.
