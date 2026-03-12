@@ -1,46 +1,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
-import math
-from typing import TYPE_CHECKING
 
-from reeval.measure import MeasureType
-
-if TYPE_CHECKING:
-    from reeval.evaluation import Evaluation
-    from reeval.measure import Measure
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Population", "InfinitePopulation", "FilteredPopulation"]
+__all__ = ["Population", "InfinitePopulation"]
 
 
 class Population(ABC):
-    def filter_on(
-        self,
-        evaluation: "Evaluation",
-        measures: "tuple[Measure, ...] | list[Measure] | Measure",
-    ) -> "FilteredPopulation":
-        """Filters this population based on the selected measure in the desired evaluation.
-
-        Args:
-            evaluation (Evaluation): _description_
-            measures (tuple[Measure, ...] | list[Measure] | Measure): boolean or categorical measures
-
-        Returns:
-            FilteredPopulation: _description_
-        """
-        if isinstance(measures, (list, tuple)):
-            ms = tuple(measures)
-        else:
-            ms = (measures,)
-        assert all(
-            m.measure_type == MeasureType.PROPORTION_BOOLEAN
-            or m.measure_type == MeasureType.PROPORTION_CATEGORICAL
-            for m in ms
-        )
-        return FilteredPopulation(self, evaluation, ms)
-
     def is_infinite(self) -> bool:
         """Returns true if this population is infinite."""
         return self.get_size() <= 0
@@ -49,6 +17,9 @@ class Population(ABC):
     def get_size(self) -> int:
         """Return the size of this population if this population is infinite returns a negative value."""
         raise NotImplementedError()
+
+    # def filter(self, measure: BooleanMeasure, empirical_proportion: float, error: float, error_type: ErrorType = ErrorType.TYPE_I) -> 'FilteredPopulation':
+    #     return FilteredPopulation(self, (error, error_type), measure, empirical_proportion)
 
 
 @dataclass(frozen=True)
@@ -70,34 +41,31 @@ class InfinitePopulation(Population):
         return -1
 
 
-@dataclass(unsafe_hash=True)
-class FilteredPopulation(Population):
-    source_population: Population
-    filter_evaluation: "Evaluation"
-    filter_measures: tuple["Measure", ...]
+# @dataclass(unsafe_hash=True)
+# class FilteredPopulation(Population):
+#     source_population: Population
+#     error_control: tuple[float, ErrorType]
+#     filter_measure: BooleanMeasure
+#     empirical_proportion: float
 
-    def __post_init__(self):
-        self.filter_measures = tuple(self.filter_measures)
+#     def get_size(self):
+#         """Produces a conservative estimate of the size of this filtered population."""
+#         if self.source_population.is_infinite():
+#             return -1
+#         else:
+#             source_size = self.source_population.get_size()
+#             result = int(
+#                 math.ceil(
+#                     source_size * (self.empirical_proportion + self.filter_measure.absolute_error)
+#                 )
+#             )
+#             logger.debug(
+#                 f"conservative estimate of ratio = {self.empirical_proportion + self.filter_measure.absolute_error} to size = {result} from original size= {source_size}"
+#             )
+#             return result
 
-    def get_size(self):
-        """Produces a conservative estimate of the size of this filtered population."""
-        if self.source_population.is_infinite():
-            return -1
-        else:
-            source_size = self.source_population.get_size()
-            logger.info(
-                f"computing conservative estimate of pop. size from original size= {source_size}"
-            )
-            filtered_measures = self.filter_measures
-            if all(m.empirical_value is not None for m in self.filter_measures):
-                worst_case_scenario = 1
-                for m in filtered_measures:
-                    worst_case_scenario *= m.empirical_value + m.absolute_error
-                result = int(math.ceil(source_size * worst_case_scenario))
-                logger.info(
-                    f"conservative estimate of ratio = {worst_case_scenario} to size = {result}"
-                )
-                return result
-            else:
-                raise NotImplementedError()
-        return self.size
+#     def adjust_error(self, error: float, error_type: ErrorType = ErrorType.TYPE_I) -> float:
+#         filter_error, filter_type = self.error_control
+#         if error_type == filter_type:
+#             return error - filter_error
+#         return error

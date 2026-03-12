@@ -1,434 +1,249 @@
-import math
 import pytest
 
-from reeval.measure import Measure, MeasureType
-from reeval.evaluation import Evaluation
+from reeval.error_type import ErrorType
+from reeval.evaluation import (
+    Evaluation,
+    apply_cochran_finite_pop,
+    reverse_cochran_finite_pop,
+)
+from reeval.measures.boolean_measure import BooleanMeasure
+from reeval.measures.mean_measure import MeanMeasure
+from reeval.measures.variance_measure import VarianceMeasure
+from reeval.measures.rank_measure import RankMeasure
 from reeval.population import FinitePopulation, InfinitePopulation
 
 
-class TestGetTotalRepeats:
-    """Tests for Evaluation._get_total_repeats_."""
-
-    def test_single_measure_single_comparison(self, basic_evaluation):
-        # Single boolean proportion measure, max_comparisons=1
-        # adjusted_repetitions = 1, total = 1 * 1 = 1
-        assert basic_evaluation._get_total_repeats_() == 1
-
-    def test_single_measure_multiple_comparisons(self, boolean_proportion_measure):
-        evaluation = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=3,
-            confidence=0.95,
-        )
-        assert evaluation._get_total_repeats_() == 3
-
-    def test_multiple_measures(self, boolean_proportion_measure, mean_measure):
-        evaluation = Evaluation(
-            measures=[boolean_proportion_measure, mean_measure],
-            max_comparisons=2,
-            confidence=0.95,
-        )
-        # Both measures have adjusted_repetitions=1, total = (1 + 1) * 2 = 4
-        assert evaluation._get_total_repeats_() == 4
-
-    def test_categorical_measure_counts_categories(
-        self, categorical_proportion_measure
-    ):
-        evaluation = Evaluation(
-            measures=[categorical_proportion_measure],
-            max_comparisons=1,
-            confidence=0.95,
-        )
-        # Categorical with 5 categories: adjusted_repetitions = 5
-        assert evaluation._get_total_repeats_() == 5
-
-    def test_measure_with_repetitions(self, measure_with_repetitions):
-        evaluation = Evaluation(
-            measures=[measure_with_repetitions],
-            max_comparisons=2,
-            confidence=0.95,
-        )
-        # repetitions=3, max_comparisons=2, total = 3 * 2 = 6
-        assert evaluation._get_total_repeats_() == 6
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-class TestComputeSampleSize:
-    """Tests for Evaluation.compute_sample_size."""
+def bool_measure(absolute_error=0.05):
+    return BooleanMeasure(name="b", absolute_error=absolute_error)
 
-    def test_computes_sample_size_for_single_measure(self, basic_evaluation):
-        sample_size = basic_evaluation.compute_sample_size()
-        # Should compute sample size for the single measure
-        assert sample_size > 0
-        assert isinstance(sample_size, int)
 
-    def test_returns_max_across_measures(self, multi_measure_evaluation):
-        sample_size = multi_measure_evaluation.compute_sample_size()
-        # Should return the maximum sample size required by any measure
-        assert sample_size > 0
+def mean_measure(std=1.0, absolute_error=0.1):
+    return MeanMeasure(name="m", std=std, absolute_error=absolute_error)
 
-    def test_applies_finite_population_correction(self, finite_population_evaluation):
-        # Get sample size with infinite population first
-        infinite_eval = Evaluation(
-            measures=finite_population_evaluation.measures,
-            max_comparisons=1,
-            confidence=0.95,
-            population=InfinitePopulation(),
-        )
-        infinite_size = infinite_eval.compute_sample_size()
-        finite_size = finite_population_evaluation.compute_sample_size()
-        # Finite population correction should reduce required sample size
-        assert finite_size <= infinite_size
 
-    def test_finite_population_correction_formula(self):
-        measure = Measure(
-            name="test",
-            measure_type=MeasureType.PROPORTION_BOOLEAN,
-            absolute_error=0.05,
-        )
+def var_measure(relative_error=0.1):
+    return VarianceMeasure(name="v", relative_error=relative_error)
+
+
+def rank_measure(max_rank=10, absolute_error=0.5):
+    return RankMeasure(name="r", max_rank=max_rank, absolute_error=absolute_error)
+
+
+def eval_inf(*measures, error=0.05, error_type=ErrorType.TYPE_I):
+    return Evaluation(
+        measures=measures,
+        population=InfinitePopulation(),
+        error_control=(error, error_type),
+    )
+
+
+def eval_fin(*measures, pop_size, error=0.05, error_type=ErrorType.TYPE_I):
+    return Evaluation(
+        measures=measures,
+        population=FinitePopulation(size=pop_size),
+        error_control=(error, error_type),
+    )
+
+
+# =========================================================================
+# 1. Cochran helpers – unit properties
+# =========================================================================
+
+
+class TestCochranHelpers:
+    def test_apply_reduces_sample_size(self):
+        """Cochran adjustment should never increase the sample size."""
+        n0 = 500
+        n = apply_cochran_finite_pop(pop_size=1000, n0=n0)
+        assert n <= n0
+
+    def test_apply_returns_positive(self):
+        n = apply_cochran_finite_pop(pop_size=200, n0=100)
+        assert n > 0
+
+    def test_apply_increases_with_population_size(self):
+        """Larger population -> adjustment is less aggressive -> larger corrected n."""
+        n_small = apply_cochran_finite_pop(pop_size=100, n0=80)
+        n_large = apply_cochran_finite_pop(pop_size=10_000, n0=80)
+        assert n_large >= n_small
+
+    def test_apply_approaches_n0_for_very_large_population(self):
+        """For an enormous population the correction should be negligible."""
+        n0 = 400
+        n = apply_cochran_finite_pop(pop_size=10_000_000, n0=n0)
+        assert abs(n - n0) <= 1  # at most one rounding unit off
+
+    def test_reverse_is_approximate_inverse_of_apply(self):
+        """round-trip: reverse(apply(pop, n0)) ≈ n0."""
+        pop_size = 5_000
+        for n0 in [50, 200, 500, 1000]:
+            n = apply_cochran_finite_pop(pop_size, n0)
+            recovered = reverse_cochran_finite_pop(pop_size, n)
+            assert (
+                abs(recovered - n0) <= 2
+            ), f"round-trip failed: n0={n0}, n={n}, recovered={recovered}"
+
+    def test_apply_result_less_than_population_size(self):
+        """You cannot sample more items than the population contains."""
+        pop_size = 300
+        n = apply_cochran_finite_pop(pop_size=pop_size, n0=500)
+        assert n <= pop_size
+
+
+# =========================================================================
+# 2. compute_sample_size – basic properties (InfinitePopulation)
+# =========================================================================
+
+
+class TestComputeSampleSizeInfinite:
+    @pytest.mark.parametrize(
+        "measures",
+        [
+            [bool_measure()],
+            [mean_measure()],
+            [var_measure()],
+            [rank_measure()],
+            [bool_measure(), mean_measure()],
+        ],
+    )
+    def test_returns_positive_integer(self, measures):
+        n = eval_inf(*measures).compute_sample_size()
+        assert isinstance(n, (int, float))
+        assert n > 0
+
+    def test_monotone_decreasing_with_error(self):
+        """Lower error tolerance requires more samples."""
+        n_loose = eval_inf(bool_measure()).compute_sample_size()  # default error=0.05
+        n_tight = eval_inf(bool_measure(), error=0.01).compute_sample_size()
+        assert n_tight >= n_loose
+
+    def test_type_ii_fewer_samples_than_type_i(self):
+        """At the same error level TYPE_II requires fewer (or equal) samples than TYPE_I."""
+        n_i = eval_inf(
+            bool_measure(), error_type=ErrorType.TYPE_I
+        ).compute_sample_size()
+        n_ii = eval_inf(
+            bool_measure(), error_type=ErrorType.TYPE_II
+        ).compute_sample_size()
+        assert n_ii <= n_i
+
+    def test_dominated_by_most_demanding_measure(self):
+        """The sample size of an evaluation is at least that of each constituent measure."""
+        m_tight = mean_measure(std=1.0, absolute_error=0.01)  # very demanding
+        m_loose = bool_measure(absolute_error=0.40)  # very easy
+
+        n_tight_alone = eval_inf(m_tight).compute_sample_size()
+        n_joint = eval_inf(m_tight, m_loose).compute_sample_size()
+        # Bonferroni correction from the extra measure may push n_joint above n_tight_alone,
+        # but it should never be below the dominant measure's standalone sample size.
+        assert n_joint >= n_tight_alone
+
+    def test_adding_measure_does_not_decrease_sample_size(self):
+        """Adding another measure can only maintain or increase the required sample size."""
+        m1 = bool_measure()
+        m2 = mean_measure()
+        n_single = eval_inf(m1).compute_sample_size()
+        n_two = eval_inf(m1, m2).compute_sample_size()
+        assert n_two >= n_single
+
+    def test_bonferroni_correction_increases_with_repeats(self):
+        """More total repeats (Bonferroni) must not decrease sample size."""
+        m_few = BooleanMeasure(name="b", repeats=1, absolute_error=0.05)
+        m_many = BooleanMeasure(name="b", repeats=10, absolute_error=0.05)
+        n_few = eval_inf(m_few).compute_sample_size()
+        n_many = eval_inf(m_many).compute_sample_size()
+        assert n_many >= n_few
+
+    def test_tighter_tolerance_needs_more_samples_across_measure_types(self):
+        pairs = [
+            (bool_measure(absolute_error=0.10), bool_measure(absolute_error=0.01)),
+            (mean_measure(absolute_error=0.20), mean_measure(absolute_error=0.02)),
+            (var_measure(relative_error=0.20), var_measure(relative_error=0.02)),
+            (rank_measure(absolute_error=1.0), rank_measure(absolute_error=0.1)),
+        ]
+        for m_loose, m_tight in pairs:
+            n_loose = eval_inf(m_loose).compute_sample_size()
+            n_tight = eval_inf(m_tight).compute_sample_size()
+            assert (
+                n_tight > n_loose
+            ), f"{type(m_loose).__name__}: tight should need more samples"
+
+
+# =========================================================================
+# 3. compute_sample_size – FinitePopulation properties
+# =========================================================================
+
+
+class TestComputeSampleSizeFinite:
+    def test_finite_less_than_or_equal_to_infinite(self):
+        """Cochran's formula always gives a smaller or equal sample size than infinite."""
+        m = bool_measure()
+        n_inf = eval_inf(m).compute_sample_size()
+        n_fin = eval_fin(m, pop_size=10_000).compute_sample_size()
+        assert n_fin <= n_inf
+
+    def test_larger_population_needs_more_samples(self):
+        """A larger population requires a larger corrected sample size (approaches infinite)."""
+        m = bool_measure()
+        n_small_pop = eval_fin(m, pop_size=200).compute_sample_size()
+        n_large_pop = eval_fin(m, pop_size=50_000).compute_sample_size()
+        assert n_large_pop >= n_small_pop
+
+    def test_very_large_population_approaches_infinite(self):
+        """With a very large population, finite ≈ infinite sample size."""
+        m = bool_measure()
+        n_inf = eval_inf(m).compute_sample_size()
+        n_fin = eval_fin(m, pop_size=10_000_000).compute_sample_size()
+        assert abs(n_fin - n_inf) <= 1
+
+    def test_finite_sample_at_most_population_size(self):
+        """The corrected sample size should not exceed the population."""
+        m = bool_measure(absolute_error=0.001)  # requires many samples
         pop_size = 500
-        evaluation = Evaluation(
-            measures=[measure],
-            max_comparisons=1,
-            confidence=0.95,
-            population=FinitePopulation(size=pop_size),
+        n = eval_fin(m, pop_size=pop_size).compute_sample_size()
+        assert n <= pop_size
+
+    def test_finite_monotone_decreasing_with_error(self):
+        """Lower error requires more samples even for finite populations."""
+        m = bool_measure()
+        n_loose = eval_fin(m, pop_size=5_000, error=0.20).compute_sample_size()
+        n_tight = eval_fin(m, pop_size=5_000, error=0.01).compute_sample_size()
+        assert n_tight >= n_loose
+
+
+# =========================================================================
+# 4. Evaluation structure properties
+# =========================================================================
+
+
+class TestEvaluationStructure:
+    def test_measures_stored_as_tuple(self):
+        e = eval_inf(bool_measure(), mean_measure())
+        assert isinstance(e.measures, tuple)
+
+    def test_measures_count_preserved(self):
+        measures = [bool_measure(), mean_measure(), var_measure()]
+        e = eval_inf(*measures)
+        assert len(e.measures) == len(measures)
+
+    def test_total_repeats_is_sum_of_individual_repeats(self):
+        m1 = BooleanMeasure(name="b1", repeats=3, absolute_error=0.05)
+        m2 = BooleanMeasure(name="b2", repeats=5, absolute_error=0.05)
+        e = eval_inf(m1, m2)
+        assert e._get_total_repeats_() == 8
+
+    def test_single_measure_total_repeats(self):
+        m = BooleanMeasure(name="b", repeats=4, absolute_error=0.05)
+        e = eval_inf(m)
+        assert e._get_total_repeats_() == 4
+
+    def test_default_population_is_infinite(self):
+        e = Evaluation(
+            measures=[bool_measure()], error_control=(0.05, ErrorType.TYPE_I)
         )
-        # Compute with infinite population
-        inf_eval = Evaluation(
-            measures=[measure],
-            max_comparisons=1,
-            confidence=0.95,
-        )
-        n0 = inf_eval.compute_sample_size()
-        # Apply Cochran's formula manually
-        expected = int(math.ceil(n0 / (1 + (n0 - 1) / pop_size)))
-        assert evaluation.compute_sample_size() == expected
-
-    def test_sample_size_increases_with_comparisons(self, boolean_proportion_measure):
-        eval_1 = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=1,
-            confidence=0.95,
-        )
-        eval_3 = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=3,
-            confidence=0.95,
-        )
-        # More comparisons should require larger sample size
-        assert eval_1.compute_sample_size() <= eval_3.compute_sample_size()
-
-
-class TestGetAdjustedSampleSize:
-    """Tests for Evaluation.__get_adjusted_sample_size__."""
-
-    def test_returns_sample_size_for_infinite_population(
-        self, evaluation_with_sample_size
-    ):
-        # Access the private method directly (double underscores at both ends = not mangled)
-        adjusted = evaluation_with_sample_size.__get_adjusted_sample_size__()
-        assert adjusted == 500
-
-    def test_applies_finite_population_adjustment(self, boolean_proportion_measure):
-        pop_size = 1000
-        sample_size = 200
-        evaluation = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=1,
-            sample_size=sample_size,
-            population=FinitePopulation(size=pop_size),
-        )
-        adjusted = evaluation.__get_adjusted_sample_size__()
-        # Formula: n * (N-1) / (N-n)
-        expected = sample_size * (pop_size - 1) / (pop_size - sample_size)
-        assert math.isclose(adjusted, expected, rel_tol=1e-6)
-
-    def test_raises_without_sample_size(self, basic_evaluation):
-        with pytest.raises(AssertionError, match="sample size must be specified"):
-            basic_evaluation.__get_adjusted_sample_size__()
-
-
-class TestComputeConfidences:
-    """Tests for Evaluation.compute_confidences."""
-
-    def test_returns_total_and_individual_confidences(
-        self, evaluation_with_sample_size
-    ):
-        total_conf, confs = evaluation_with_sample_size.compute_confidences()
-        assert isinstance(total_conf, float)
-        assert isinstance(confs, dict)
-        assert 0 <= total_conf <= 1
-
-    def test_individual_confidences_keyed_by_measure_name(
-        self, boolean_proportion_measure, mean_measure
-    ):
-        evaluation = Evaluation(
-            measures=[boolean_proportion_measure, mean_measure],
-            max_comparisons=1,
-            sample_size=500,
-        )
-        _, confs = evaluation.compute_confidences()
-        assert "accuracy" in confs
-        assert "response_time" in confs
-
-    def test_total_confidence_is_product(
-        self, boolean_proportion_measure, mean_measure
-    ):
-        evaluation = Evaluation(
-            measures=[boolean_proportion_measure, mean_measure],
-            max_comparisons=1,
-            sample_size=500,
-        )
-        total_conf, confs = evaluation.compute_confidences()
-        expected_total = 1.0
-        for conf in confs.values():
-            expected_total *= conf
-        assert math.isclose(total_conf, expected_total, rel_tol=1e-6)
-
-    def test_adjusts_for_max_comparisons(self, boolean_proportion_measure):
-        eval_1 = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=1,
-            sample_size=500,
-        )
-        eval_3 = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=3,
-            sample_size=500,
-        )
-        total_1, _ = eval_1.compute_confidences()
-        total_3, _ = eval_3.compute_confidences()
-        # More comparisons should reduce confidence for same sample size
-        assert total_1 >= total_3
-
-    def test_restores_measure_repetitions(self, measure_with_repetitions):
-        original_reps = measure_with_repetitions.repetitions
-        evaluation = Evaluation(
-            measures=[measure_with_repetitions],
-            max_comparisons=2,
-            sample_size=500,
-        )
-        evaluation.compute_confidences()
-        # Repetitions should be restored after computation
-        assert measure_with_repetitions.repetitions == original_reps
-
-
-class TestComputeAbsoluteErrors:
-    """Tests for Evaluation.compute_absolute_errors."""
-
-    def test_returns_errors_dict(self, evaluation_with_sample_size):
-        # Need to set confidence for computing errors
-        evaluation_with_sample_size.confidence = 0.95
-        errors = evaluation_with_sample_size.compute_absolute_errors()
-        assert isinstance(errors, dict)
-        assert len(errors) == 1
-
-    def test_errors_keyed_by_measure_name(
-        self, boolean_proportion_measure, mean_measure
-    ):
-        evaluation = Evaluation(
-            measures=[boolean_proportion_measure, mean_measure],
-            max_comparisons=1,
-            confidence=0.95,
-            sample_size=500,
-        )
-        errors = evaluation.compute_absolute_errors()
-        assert "accuracy" in errors
-        assert "response_time" in errors
-
-    def test_errors_are_positive(self, evaluation_with_sample_size):
-        evaluation_with_sample_size.confidence = 0.95
-        errors = evaluation_with_sample_size.compute_absolute_errors()
-        for error in errors.values():
-            assert error > 0
-
-    def test_errors_decrease_with_sample_size(self, boolean_proportion_measure):
-        eval_small = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=1,
-            confidence=0.95,
-            sample_size=100,
-        )
-        eval_large = Evaluation(
-            measures=[boolean_proportion_measure],
-            max_comparisons=1,
-            confidence=0.95,
-            sample_size=1000,
-        )
-        errors_small = eval_small.compute_absolute_errors()
-        errors_large = eval_large.compute_absolute_errors()
-        assert errors_small["accuracy"] > errors_large["accuracy"]
-
-    def test_restores_measure_repetitions(self, measure_with_repetitions):
-        original_reps = measure_with_repetitions.repetitions
-        evaluation = Evaluation(
-            measures=[measure_with_repetitions],
-            max_comparisons=2,
-            confidence=0.95,
-            sample_size=500,
-        )
-        evaluation.compute_absolute_errors()
-        # Repetitions should be restored after computation
-        assert measure_with_repetitions.repetitions == original_reps
-
-
-class TestEvaluationIntegration:
-    """Integration tests for Evaluation workflows."""
-
-    def test_compute_sample_size_then_confidences(self):
-        """Verify that computed sample size achieves target confidence."""
-        measure = Measure(
-            name="test",
-            measure_type=MeasureType.PROPORTION_BOOLEAN,
-            absolute_error=0.05,
-        )
-        evaluation = Evaluation(
-            measures=[measure],
-            max_comparisons=1,
-            confidence=0.95,
-        )
-        sample_size = evaluation.compute_sample_size()
-        evaluation.sample_size = sample_size
-        total_conf, _ = evaluation.compute_confidences()
-        # Achieved confidence should be at least the target
-        assert total_conf >= 0.94  # Allow small numerical tolerance
-
-    def test_compute_sample_size_then_errors(self):
-        """Verify that computed sample size achieves target error."""
-        target_error = 0.05
-        measure = Measure(
-            name="test",
-            measure_type=MeasureType.PROPORTION_BOOLEAN,
-            absolute_error=target_error,
-        )
-        evaluation = Evaluation(
-            measures=[measure],
-            max_comparisons=1,
-            confidence=0.95,
-        )
-        sample_size = evaluation.compute_sample_size()
-        evaluation.sample_size = sample_size
-        errors = evaluation.compute_absolute_errors()
-        # Achieved error should be at most the target
-        assert errors["test"] <= target_error + 0.001  # Allow small numerical tolerance
-
-
-class TestFilteredPopulation:
-    """Tests for Evaluation with FilteredPopulation."""
-
-    def test_filtered_population_get_size(self):
-        """Test that FilteredPopulation computes conservative size estimate."""
-        original = FinitePopulation(192)
-        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
-        m1.empirical_value = 0.53
-        filtered = original.filter_on(eval1, m1)
-        # Conservative estimate: 192 * (0.53 + 0.1) = 192 * 0.63 = 121 (rounded up)
-        expected_size = int(math.ceil(192 * (0.53 + 0.1)))
-        assert filtered.get_size() == expected_size
-
-    def test_filtered_population_from_infinite_is_infinite(self):
-        """Test that filtering an infinite population results in infinite population."""
-        infinite = InfinitePopulation()
-        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        eval1 = Evaluation([m1], infinite, confidence=0.95, sample_size=100)
-        m1.empirical_value = 0.5
-        filtered = infinite.filter_on(eval1, m1)
-        assert filtered.is_infinite()
-        assert filtered.get_size() == -1
-
-    def test_evaluation_with_filtered_population_compute_confidences(
-        self, filtered_population_evaluation
-    ):
-        """Test compute_confidences works with filtered population."""
-        eval2, filtered, m1, m2 = filtered_population_evaluation
-        total_conf, confs = eval2.compute_confidences()
-        assert isinstance(total_conf, float)
-        assert 0 <= total_conf <= 1
-        assert "b" in confs
-
-    def test_evaluation_with_filtered_population_compute_errors(
-        self, filtered_population_evaluation
-    ):
-        """Test compute_absolute_errors works with filtered population."""
-        eval2, filtered, m1, m2 = filtered_population_evaluation
-        errors = eval2.compute_absolute_errors()
-        assert "b" in errors
-        assert errors["b"] > 0
-
-    def test_evaluation_with_filtered_population_compute_sample_size(self):
-        """Test compute_sample_size works with filtered population."""
-        original = FinitePopulation(192)
-        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
-        m1.empirical_value = 0.53
-        filtered = original.filter_on(eval1, m1)
-
-        m2 = Measure("b", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        eval2 = Evaluation([m2], filtered, confidence=0.96)
-        sample_size = eval2.compute_sample_size()
-        assert sample_size > 0
-        assert isinstance(sample_size, int)
-
-    def test_chained_filtered_population_size(self, chained_filtered_population):
-        """Test that chained filtered populations compute correct size."""
-        eval3, filtered_2, measures = chained_filtered_population
-        m1, m2, m3 = measures
-        # filtered_1 size: 192 * (0.53 + 0.1) = 121
-        # filtered_2 size: 121 * (0.31 + 0.1) = 50 (rounded up)
-        filtered_1_size = int(math.ceil(192 * (m1.empirical_value + m1.absolute_error)))
-        expected_size = int(
-            math.ceil(filtered_1_size * (m2.empirical_value + m2.absolute_error))
-        )
-        assert filtered_2.get_size() == expected_size
-
-    def test_chained_filtered_population_evaluation(self, chained_filtered_population):
-        """Test that evaluation on chained filtered population works."""
-        eval3, filtered_2, measures = chained_filtered_population
-        total_conf, confs = eval3.compute_confidences()
-        assert isinstance(total_conf, float)
-        assert 0 <= total_conf <= 1
-
-    def test_filtered_population_with_categorical_measure(self):
-        """Test FilteredPopulation with categorical measure (as in main.py)."""
-        original = FinitePopulation(192)
-        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        eval1 = Evaluation([m1], original, confidence=0.97, sample_size=65)
-        m1.empirical_value = 0.68
-        filtered = original.filter_on(eval1, m1)
-
-        m2 = Measure(
-            "cat", MeasureType.PROPORTION_CATEGORICAL, absolute_error=0.1, categories=3
-        )
-        eval2 = Evaluation([m2], filtered, confidence=0.95, sample_size=24)
-        total_conf, confs = eval2.compute_confidences()
-        assert isinstance(total_conf, float)
-        assert "cat" in confs
-
-    def test_filtered_population_smaller_than_finite(self):
-        """Test that filtered population is smaller than or equal to source."""
-        original = FinitePopulation(1000)
-        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.05)
-        eval1 = Evaluation([m1], original, confidence=0.95, sample_size=100)
-        m1.empirical_value = 0.3
-        filtered = original.filter_on(eval1, m1)
-        assert filtered.get_size() <= original.get_size()
-
-    def test_filter_on_multiple_measures(self):
-        """Test filtering on multiple measures at once."""
-        original = FinitePopulation(500)
-        m1 = Measure("a", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        m2 = Measure("b", MeasureType.PROPORTION_BOOLEAN, absolute_error=0.1)
-        eval1 = Evaluation([m1, m2], original, confidence=0.95, sample_size=100)
-        m1.empirical_value = 0.5
-        m2.empirical_value = 0.4
-        # Filter on both measures
-        filtered = original.filter_on(eval1, [m1, m2])
-        # Size should be: 500 * (0.5 + 0.1) * (0.4 + 0.1) = 500 * 0.6 * 0.5 = 150
-        expected = int(
-            math.ceil(
-                500
-                * (m1.empirical_value + m1.absolute_error)
-                * (m2.empirical_value + m2.absolute_error)
-            )
-        )
-        assert filtered.get_size() == expected
+        assert isinstance(e.population, InfinitePopulation)
