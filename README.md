@@ -30,6 +30,8 @@ It follows and implement every guideline mentioned in [A Hitchhiker's guide to s
    - [Effect sizes — Vargha-Delaney A12](#16-effect-sizes--vargha-delaney-a12)
    - [Effect sizes — odds ratio with confidence interval](#17-effect-sizes--odds-ratio-with-confidence-interval)
 6. [Citing](#citing)
+7. [Contributing](#contributing)
+8. [License](#license)
 
 ---
 
@@ -514,3 +516,17 @@ If you use **reeval** in your research, please cite:
   note      = {Python package for statistically-grounded sample size computation and evaluation guarantees},
 }
 ```
+
+---
+
+## Contributing
+
+Bug reports and feature requests are welcome — please open an issue on the [GitHub issue tracker](https://github.com/Theomat/reeval/issues).
+
+If you'd like to contribute code, open a pull request against `main`. Please make sure existing tests pass (`pytest tests/`) and add tests for any new behaviour.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
