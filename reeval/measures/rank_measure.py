@@ -99,7 +99,7 @@ class RankMeasure(Measure):
         sample2: list[float],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> tuple[float, float, tuple[float, float]]:
+    ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of ranked data.
         It checks if the rank distributions are the same.
         It relies on the Mann-Whitney U test.
@@ -115,6 +115,8 @@ class RankMeasure(Measure):
             float: the p-value obtained
             float: effect size (Vargha and Delaney's A12)
             tuple[float, float]: confidence interval of A12
+            float: Type I error (α) for the given sample size
+            float: Type II error (β) for the given sample size
         """
         n1, n2 = len(sample1), len(sample2)
         u_result = stats.mannwhitneyu(sample1, sample2, alternative="two-sided")
@@ -132,4 +134,7 @@ class RankMeasure(Measure):
                 z = stats.norm.ppf(1 - error)
         ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
 
-        return p_value, a12, ci
+        n = min(n1, n2)
+        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
+        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
+        return p_value, a12, ci, type_i_error, type_ii_error

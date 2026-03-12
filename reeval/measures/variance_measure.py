@@ -109,6 +109,6 @@ class VarianceMeasure(Measure):
         sample2: list[bool],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> tuple[float, float, tuple[float, float]]:
+    ) -> tuple[float, float, tuple[float, float], float, float]:
         """Not implemented."""
         raise NotImplementedError()

@@ -476,7 +476,7 @@ class TestTestDifferent:
         else:
             s1 = [random.gauss(0, 1) for _ in range(50)]
             s2 = [random.gauss(0, 1) for _ in range(50)]
-        p, effect, ci = testable_measure.test_different(
+        p, effect, ci, type_i_error, type_ii_error = testable_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert 0 <= p <= 1
@@ -488,7 +488,7 @@ class TestTestDifferent:
             s = [random.choice([True, False]) for _ in range(100)]
         else:
             s = [random.gauss(5, 1) for _ in range(100)]
-        p, _, _ = testable_measure.test_different(
+        p, *_ = testable_measure.test_different(
             s, s, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert (
@@ -505,7 +505,7 @@ class TestTestDifferent:
         else:
             s1 = [random.gauss(0, 0.1) for _ in range(n)]
             s2 = [random.gauss(100, 0.1) for _ in range(n)]
-        p, _, _ = testable_measure.test_different(
+        p, *_ = testable_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert p < 0.01, f"Very different samples should be detected, got p={p}"
@@ -522,11 +522,13 @@ class TestTestDifferent:
         result = testable_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
-        assert len(result) == 3
-        p_value, effect_size, ci = result
+        assert len(result) == 5
+        p_value, effect_size, ci, type_i_error, type_ii_error = result
         assert isinstance(p_value, float)
         assert isinstance(effect_size, float)
         assert isinstance(ci, tuple) and len(ci) == 2
+        assert isinstance(type_i_error, float)
+        assert isinstance(type_ii_error, float)
 
     def test_ci_lower_le_upper(self, testable_measure):
         """Confidence interval lower bound should be <= upper bound."""
@@ -537,7 +539,7 @@ class TestTestDifferent:
         else:
             s1 = [random.gauss(0, 1) for _ in range(60)]
             s2 = [random.gauss(0, 1) for _ in range(60)]
-        _, _, (lo, hi) = testable_measure.test_different(
+        _, _, (lo, hi), *_ = testable_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert lo <= hi
@@ -551,10 +553,10 @@ class TestTestDifferent:
         else:
             s1 = [random.gauss(0, 1) for _ in range(40)]
             s2 = [random.gauss(1, 1) for _ in range(40)]
-        p_forward, _, _ = testable_measure.test_different(
+        p_forward, *_ = testable_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
-        p_reverse, _, _ = testable_measure.test_different(
+        p_reverse, *_ = testable_measure.test_different(
             s2, s1, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert abs(p_forward - p_reverse) < 1e-10
@@ -564,7 +566,7 @@ class TestTestDifferent:
         random.seed(42)
         s1 = [random.randint(1, 10) for _ in range(50)]
         s2 = [random.randint(1, 10) for _ in range(50)]
-        p, _, _ = m.test_different(s1, s2, error=0.05, error_type=ErrorType.TYPE_I)
+        p, *_ = m.test_different(s1, s2, error=0.05, error_type=ErrorType.TYPE_I)
         assert 0 <= p <= 1
 
 
@@ -589,7 +591,7 @@ class TestEffectSizeA12:
         random.seed(42)
         s1 = [random.gauss(0, 1) for _ in range(50)]
         s2 = [random.gauss(1, 1) for _ in range(50)]
-        _, a12, _ = a12_measure.test_different(
+        _, a12, *_ = a12_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert 0 <= a12 <= 1
@@ -599,7 +601,7 @@ class TestEffectSizeA12:
         random.seed(10)
         s1 = [random.gauss(5, 1) for _ in range(200)]
         s2 = [random.gauss(5, 1) for _ in range(200)]
-        _, a12, _ = a12_measure.test_different(
+        _, a12, *_ = a12_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert (
@@ -611,7 +613,7 @@ class TestEffectSizeA12:
         random.seed(77)
         s1 = [random.gauss(0, 0.1) for _ in range(100)]
         s2 = [random.gauss(100, 0.1) for _ in range(100)]
-        _, a12, _ = a12_measure.test_different(
+        _, a12, *_ = a12_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert a12 > 0.9 or a12 < 0.1, f"Expected extreme A12, got {a12}"
@@ -621,10 +623,10 @@ class TestEffectSizeA12:
         random.seed(33)
         s1 = [random.gauss(0, 1) for _ in range(60)]
         s2 = [random.gauss(2, 1) for _ in range(60)]
-        _, a12_fwd, _ = a12_measure.test_different(
+        _, a12_fwd, *_ = a12_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
-        _, a12_rev, _ = a12_measure.test_different(
+        _, a12_rev, *_ = a12_measure.test_different(
             s2, s1, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert (
@@ -636,7 +638,7 @@ class TestEffectSizeA12:
         random.seed(21)
         s1 = [random.gauss(0, 1) for _ in range(80)]
         s2 = [random.gauss(1, 1) for _ in range(80)]
-        _, a12, (lo, hi) = a12_measure.test_different(
+        _, a12, (lo, hi), *_ = a12_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert lo <= a12 <= hi, f"CI [{lo}, {hi}] does not contain A12={a12}"
@@ -646,7 +648,7 @@ class TestEffectSizeA12:
         random.seed(99)
         s1 = [random.gauss(0, 1) for _ in range(50)]
         s2 = [random.gauss(0, 1) for _ in range(50)]
-        _, _, (lo, hi) = a12_measure.test_different(
+        _, _, (lo, hi), *_ = a12_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert 0 <= lo <= hi <= 1
@@ -656,14 +658,14 @@ class TestEffectSizeA12:
         random.seed(55)
         s1_small = [random.gauss(0, 1) for _ in range(30)]
         s2_small = [random.gauss(1, 1) for _ in range(30)]
-        _, _, (lo_s, hi_s) = a12_measure.test_different(
+        _, _, (lo_s, hi_s), *_ = a12_measure.test_different(
             s1_small, s2_small, error=0.05, error_type=ErrorType.TYPE_I
         )
 
         random.seed(55)
         s1_large = [random.gauss(0, 1) for _ in range(300)]
         s2_large = [random.gauss(1, 1) for _ in range(300)]
-        _, _, (lo_l, hi_l) = a12_measure.test_different(
+        _, _, (lo_l, hi_l), *_ = a12_measure.test_different(
             s1_large, s2_large, error=0.05, error_type=ErrorType.TYPE_I
         )
 
@@ -682,7 +684,7 @@ class TestEffectSizeOddsRatio:
         random.seed(42)
         s1 = [random.choice([True, False]) for _ in range(80)]
         s2 = [random.choice([True, False]) for _ in range(80)]
-        _, odds_ratio, _ = bool_measure.test_different(
+        _, odds_ratio, *_ = bool_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert odds_ratio >= 0
@@ -690,7 +692,7 @@ class TestEffectSizeOddsRatio:
     def test_or_no_effect_for_identical_samples(self, bool_measure):
         """Identical samples should yield OR = 1."""
         s = [True, False, True, True, False] * 20
-        _, odds_ratio, _ = bool_measure.test_different(
+        _, odds_ratio, *_ = bool_measure.test_different(
             s, s, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert odds_ratio == pytest.approx(
@@ -701,7 +703,7 @@ class TestEffectSizeOddsRatio:
         """Completely opposite boolean samples should yield extreme OR."""
         s1 = [True] * 50 + [False] * 5
         s2 = [False] * 50 + [True] * 5
-        _, odds_ratio, _ = bool_measure.test_different(
+        _, odds_ratio, *_ = bool_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert (
@@ -713,10 +715,10 @@ class TestEffectSizeOddsRatio:
         random.seed(7)
         s1 = [random.choice([True, False]) for _ in range(100)]
         s2 = [True] * 70 + [False] * 30
-        _, or_fwd, _ = bool_measure.test_different(
+        _, or_fwd, *_ = bool_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
-        _, or_rev, _ = bool_measure.test_different(
+        _, or_rev, *_ = bool_measure.test_different(
             s2, s1, error=0.05, error_type=ErrorType.TYPE_I
         )
         if (
@@ -734,7 +736,7 @@ class TestEffectSizeOddsRatio:
         random.seed(15)
         s1 = [random.choice([True, False]) for _ in range(100)]
         s2 = [random.choice([True, False]) for _ in range(100)]
-        _, odds_ratio, (lo, hi) = bool_measure.test_different(
+        _, odds_ratio, (lo, hi), *_ = bool_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert (
@@ -746,7 +748,7 @@ class TestEffectSizeOddsRatio:
         random.seed(88)
         s1 = [random.choice([True, False]) for _ in range(60)]
         s2 = [random.choice([True, False]) for _ in range(60)]
-        _, _, (lo, hi) = bool_measure.test_different(
+        _, _, (lo, hi), *_ = bool_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert lo <= hi
@@ -755,7 +757,7 @@ class TestEffectSizeOddsRatio:
         """When a contingency table cell is zero, CI should be (0, inf)."""
         s1 = [True] * 50
         s2 = [False] * 50
-        _, _, (lo, hi) = bool_measure.test_different(
+        _, _, (lo, hi), *_ = bool_measure.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
         assert lo == 0.0
@@ -794,10 +796,10 @@ class TestTestDifferentTypeII:
             if 0 in (sum(s1), len(s1) - sum(s1), sum(s2), len(s2) - sum(s2)):
                 pytest.skip("zero-cell contingency table")
 
-        _, _, (lo_i, hi_i) = any_testable.test_different(
+        _, _, (lo_i, hi_i), *_ = any_testable.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
-        _, _, (lo_ii, hi_ii) = any_testable.test_different(
+        _, _, (lo_ii, hi_ii), *_ = any_testable.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_II
         )
         assert (hi_ii - lo_ii) <= (hi_i - lo_i)
@@ -811,7 +813,7 @@ class TestTestDifferentTypeII:
         else:
             s1 = [random.gauss(0, 1) for _ in range(60)]
             s2 = [random.gauss(0, 1) for _ in range(60)]
-        _, _, (lo, hi) = any_testable.test_different(
+        _, _, (lo, hi), *_ = any_testable.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_II
         )
         assert lo <= hi
@@ -825,10 +827,10 @@ class TestTestDifferentTypeII:
         else:
             s1 = [random.gauss(0, 1) for _ in range(50)]
             s2 = [random.gauss(1, 1) for _ in range(50)]
-        p_i, _, _ = any_testable.test_different(
+        p_i, *_ = any_testable.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_I
         )
-        p_ii, _, _ = any_testable.test_different(
+        p_ii, *_ = any_testable.test_different(
             s1, s2, error=0.05, error_type=ErrorType.TYPE_II
         )
         assert p_i == pytest.approx(p_ii)
@@ -1004,12 +1006,137 @@ class TestEdgeCases:
         """When both samples are all True, they should not be different."""
         m = BooleanMeasure(name="b", absolute_error=0.05)
         s = [True] * 50
-        p, _, _ = m.test_different(s, s, error=0.05, error_type=ErrorType.TYPE_I)
+        p, *_ = m.test_different(s, s, error=0.05, error_type=ErrorType.TYPE_I)
         assert p >= 0.05
 
     def test_mean_test_different_constant_samples(self):
         """Two constant samples with same value should not be flagged different."""
         m = MeanMeasure(name="m", std=1.0, absolute_error=0.1)
         s = [5.0] * 50
-        p, _, _ = m.test_different(s, s, error=0.05, error_type=ErrorType.TYPE_I)
+        p, *_ = m.test_different(s, s, error=0.05, error_type=ErrorType.TYPE_I)
         assert p >= 0.05
+
+
+# =========================================================================
+# 10. test_different – Type I and Type II error return values
+# =========================================================================
+
+
+class TestTestDifferentErrorRates:
+    """Properties of the Type I and Type II error values returned by test_different."""
+
+    @pytest.fixture(params=["boolean", "mean_known", "rank"])
+    def any_testable(self, request):
+        factories = {
+            "boolean": lambda: BooleanMeasure(name="b", absolute_error=0.05),
+            "mean_known": lambda: MeanMeasure(name="m", std=1.0, absolute_error=0.1),
+            "rank": lambda: RankMeasure(name="r", max_rank=10, absolute_error=0.5),
+        }
+        return factories[request.param]()
+
+    def test_errors_in_valid_range(self, any_testable):
+        """Type I and Type II errors must be in [0, 1]."""
+        random.seed(42)
+        s1 = [random.gauss(0, 1) for _ in range(60)]
+        s2 = [random.gauss(1, 1) for _ in range(60)]
+        if isinstance(any_testable, BooleanMeasure):
+            s1 = [random.choice([True, False]) for _ in range(60)]
+            s2 = [random.choice([True, False]) for _ in range(60)]
+        elif isinstance(any_testable, RankMeasure):
+            s1 = [random.randint(1, 10) for _ in range(60)]
+            s2 = [random.randint(1, 10) for _ in range(60)]
+        _, _, _, type_i_error, type_ii_error = any_testable.test_different(
+            s1, s2, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        assert 0 <= type_i_error <= 1
+        assert 0 <= type_ii_error <= 1
+
+    def test_type_i_error_decreases_with_sample_size(self):
+        """Larger samples should yield a smaller Type I error."""
+        m = BooleanMeasure(name="b", absolute_error=0.05)
+        random.seed(1)
+        s1_small = [random.choice([True, False]) for _ in range(30)]
+        s2_small = [random.choice([True, False]) for _ in range(30)]
+        s1_large = [random.choice([True, False]) for _ in range(300)]
+        s2_large = [random.choice([True, False]) for _ in range(300)]
+        _, _, _, type_i_small, _ = m.test_different(
+            s1_small, s2_small, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        _, _, _, type_i_large, _ = m.test_different(
+            s1_large, s2_large, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        assert type_i_large <= type_i_small
+
+    def test_type_ii_error_decreases_with_sample_size(self):
+        """Larger samples should yield a smaller Type II error (more power)."""
+        m = BooleanMeasure(name="b", absolute_error=0.05)
+        random.seed(2)
+        s1_small = [random.choice([True, False]) for _ in range(30)]
+        s2_small = [random.choice([True, False]) for _ in range(30)]
+        s1_large = [random.choice([True, False]) for _ in range(300)]
+        s2_large = [random.choice([True, False]) for _ in range(300)]
+        _, _, _, _, type_ii_small = m.test_different(
+            s1_small, s2_small, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        _, _, _, _, type_ii_large = m.test_different(
+            s1_large, s2_large, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        assert type_ii_large <= type_ii_small
+
+    def test_type_ii_error_less_than_type_i_error(self, any_testable):
+        """For a given sample size, Type II error (β via one-sided z) is smaller
+        than Type I error (α via two-sided z_{α/2}) because z_β < z_{α/2}."""
+        random.seed(99)
+        if isinstance(any_testable, BooleanMeasure):
+            s1 = [random.choice([True, False]) for _ in range(80)]
+            s2 = [random.choice([True, False]) for _ in range(80)]
+        elif isinstance(any_testable, RankMeasure):
+            s1 = [random.randint(1, 10) for _ in range(80)]
+            s2 = [random.randint(1, 10) for _ in range(80)]
+        else:
+            s1 = [random.gauss(0, 1) for _ in range(80)]
+            s2 = [random.gauss(1, 1) for _ in range(80)]
+        _, _, _, type_i_error, type_ii_error = any_testable.test_different(
+            s1, s2, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        assert type_ii_error <= type_i_error, (
+            f"{type(any_testable).__name__}: expected TYPE_II error ≤ TYPE_I error, "
+            f"got {type_ii_error} > {type_i_error}"
+        )
+
+    def test_errors_consistent_with_compute_error_probability(self):
+        """Type I error returned by test_different should equal
+        1 - compute_error_probability(n, TYPE_I) for the same n."""
+        m = BooleanMeasure(name="b", absolute_error=0.05)
+        n = 100
+        s1 = [True] * (n // 2) + [False] * (n // 2)
+        s2 = [True] * (n // 2) + [False] * (n // 2)
+        _, _, _, type_i_error, type_ii_error = m.test_different(
+            s1, s2, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        expected_type_i = 1 - m.compute_error_probability(n, ErrorType.TYPE_I)
+        expected_type_ii = 1 - m.compute_error_probability(n, ErrorType.TYPE_II)
+        assert type_i_error == pytest.approx(expected_type_i)
+        assert type_ii_error == pytest.approx(expected_type_ii)
+
+    def test_errors_independent_of_error_type_arg(self, any_testable):
+        """The error rates returned are properties of the sample size,
+        not of the error_type argument (which only affects the CI)."""
+        random.seed(7)
+        if isinstance(any_testable, BooleanMeasure):
+            s1 = [random.choice([True, False]) for _ in range(60)]
+            s2 = [random.choice([True, False]) for _ in range(60)]
+        elif isinstance(any_testable, RankMeasure):
+            s1 = [random.randint(1, 10) for _ in range(60)]
+            s2 = [random.randint(1, 10) for _ in range(60)]
+        else:
+            s1 = [random.gauss(0, 1) for _ in range(60)]
+            s2 = [random.gauss(0, 1) for _ in range(60)]
+        _, _, _, t1_from_i, t2_from_i = any_testable.test_different(
+            s1, s2, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        _, _, _, t1_from_ii, t2_from_ii = any_testable.test_different(
+            s1, s2, error=0.05, error_type=ErrorType.TYPE_II
+        )
+        assert t1_from_i == pytest.approx(t1_from_ii)
+        assert t2_from_i == pytest.approx(t2_from_ii)

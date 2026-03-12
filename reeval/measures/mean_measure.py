@@ -123,7 +123,7 @@ class MeanMeasure(Measure):
         sample2: list[float],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> tuple[float, float, tuple[float, float]]:
+    ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
         It relies on Welch's t-test.
@@ -139,14 +139,19 @@ class MeanMeasure(Measure):
             float: the p-value obtained
             float: effect size (Vargha and Delaney's A12)
             tuple[float, float]: confidence interval of A12
+            float: Type I error (α) for the given sample size
+            float: Type II error (β) for the given sample size
         """
         result = stats.ttest_ind(sample1, sample2, equal_var=False)
         p_value = result.pvalue
+        n = min(len(sample1), len(sample2))
+        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
+        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
         # When both samples have zero variance (e.g. constant values),
         # ttest_ind returns NaN and mannwhitneyu is unreliable.
         # Treat as no difference: p=1, A12=0.5, degenerate CI.
         if math.isnan(p_value):
-            return 1.0, 0.5, (0.5, 0.5)
+            return 1.0, 0.5, (0.5, 0.5), type_i_error, type_ii_error
 
         n1, n2 = len(sample1), len(sample2)
         # Vargha and Delaney's A12 via Mann-Whitney U
@@ -164,7 +169,7 @@ class MeanMeasure(Measure):
                 z = stats.norm.ppf(1 - error)
         ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
 
-        return p_value, a12, ci
+        return p_value, a12, ci, type_i_error, type_ii_error
 
     def test_different_paired_data(
         self,
@@ -172,7 +177,7 @@ class MeanMeasure(Measure):
         sample2: list[float],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> tuple[float, float, tuple[float, float]]:
+    ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples where data is paired of the given measure.
         It checks if the parameters are the same.
         It relies on Wilcoxon's test.
@@ -188,14 +193,19 @@ class MeanMeasure(Measure):
             float: the p-value obtained
             float: effect size (Vargha and Delaney's A12)
             tuple[float, float]: confidence interval of A12
+            float: Type I error (α) for the given sample size
+            float: Type II error (β) for the given sample size
         """
         result = stats.wilcoxon(sample1, sample2)
         p_value = result.pvalue
+        n = min(len(sample1), len(sample2))
+        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
+        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
         # When both samples have zero variance (e.g. constant values),
         # ttest_ind returns NaN and mannwhitneyu is unreliable.
         # Treat as no difference: p=1, A12=0.5, degenerate CI.
         if math.isnan(p_value):
-            return 1.0, 0.5, (0.5, 0.5)
+            return 1.0, 0.5, (0.5, 0.5), type_i_error, type_ii_error
 
         n1, n2 = len(sample1), len(sample2)
         # Vargha and Delaney's A12 via Mann-Whitney U
@@ -213,4 +223,4 @@ class MeanMeasure(Measure):
                 z = stats.norm.ppf(1 - error)
         ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
 
-        return p_value, a12, ci
+        return p_value, a12, ci, type_i_error, type_ii_error

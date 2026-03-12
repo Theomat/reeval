@@ -10,7 +10,6 @@ from reeval.measures.measure import (
     normal_z,
     reverse_bonferroni,
 )
-from reeval.population import FilteredPopulation, Population
 from scipy import stats
 
 logger = logging.getLogger(__name__)
@@ -96,34 +95,13 @@ class BooleanMeasure(Measure):
                 )
                 return 1 - beta
 
-    def filter(
-        self,
-        population: Population,
-        empirical_value: float,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> FilteredPopulation:
-        """
-        Filter a population based on the result of this measure.
-        """
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Confidence threshold: (1-α) level
-                confidence = 1 - error
-            case ErrorType.TYPE_II:
-                # Power threshold: (1-β) used as confidence criterion
-                confidence = 1 - error
-        return FilteredPopulation(
-            population, confidence, empirical_value, self.absolute_error
-        )
-
     def test_different(
         self,
         sample1: list[bool],
         sample2: list[bool],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> tuple[float, float, tuple[float, float]]:
+    ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
         It relies on Fisher's exact test.
@@ -140,6 +118,8 @@ class BooleanMeasure(Measure):
             float: the p-value obtained
             float: effect size (odds ratio)
             tuple[float, float]: confidence interval of the odds ratio
+            float: Type I error (α) for the given sample size
+            float: Type II error (β) for the given sample size
         """
         s1, s2 = sum(sample1), sum(sample2)
         f1, f2 = len(sample1) - s1, len(sample2) - s2
@@ -160,7 +140,10 @@ class BooleanMeasure(Measure):
             log_or = math.log(odds_ratio)
             se = math.sqrt(1 / s1 + 1 / f1 + 1 / s2 + 1 / f2)
             ci = (math.exp(log_or - z * se), math.exp(log_or + z * se))
-        return result.pvalue, odds_ratio, ci
+        n = min(len(sample1), len(sample2))
+        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
+        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
+        return result.pvalue, odds_ratio, ci, type_i_error, type_ii_error
 
 
 def CategoricalMeasures(

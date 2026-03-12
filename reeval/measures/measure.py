@@ -155,7 +155,7 @@ class Measure(ABC):
         sample2: list[bool],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
-    ) -> tuple[float, float, tuple[float, float]]:
+    ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
 
@@ -171,5 +171,7 @@ class Measure(ABC):
             float: the p-value obtained
             float: effect size
             tuple[float, float]: confidence interval of the effect size
+            float: Type I error (α) for the given sample size
+            float: Type II error (β) for the given sample size
         """
         raise NotImplementedError()
