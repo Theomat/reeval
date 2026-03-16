@@ -7,3 +7,4 @@ from reeval.measures import (
     RankMeasure,
     VarianceMeasure,
 )
+from reeval.population import FinitePopulation, InfinitePopulation
