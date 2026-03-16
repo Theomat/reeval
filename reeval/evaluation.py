@@ -3,6 +3,7 @@ import logging
 import math
 
 from reeval.error_type import ErrorType
+from reeval.measures.measure import apply_bonferroni
 from reeval.population import FinitePopulation, InfinitePopulation
 from reeval.measures import Measure
 
@@ -44,9 +45,10 @@ class Evaluation:
         """Compute the sample size as if pop. was infinite for the given error."""
         max_sample_size = 0
         repetition_multiplier = self._get_total_repeats_()
+        per_measure_error = apply_bonferroni(error, repetition_multiplier)
         for measure in self.measures:
             sample_size = measure.compute_sample_size(
-                error, error_type, repetition_multiplier
+                per_measure_error, error_type, repetition_multiplier
             )
             max_sample_size = max(max_sample_size, sample_size)
         return max_sample_size
@@ -105,21 +107,23 @@ class Evaluation:
             #         )
 
     def compute_error_probability(
-        self, sample_size: int | None = None
+        self,
+        sample_size: int | None = None,
+        error_type: ErrorType | None = None,
     ) -> tuple[float, dict[str, float]]:
-        """Compute the family wise probability of error.
+        """Compute the achieved evaluation-level confidence or power.
 
         Returns:
-            tuple[float, dict[str, float]]: (evaluation confidence, measure name -> confidence)
+            tuple[float, dict[str, float]]: (evaluation confidence/power, measure name -> confidence/power)
         """
         logger.debug("computing confidences")
 
         confs = {}
-        total_conf = 1
         if sample_size is None:
             sample_size = self.compute_sample_size()
         sample_size = self.__get_adjusted_sample_size__(sample_size)
-        _, error_type = self.error_control
+        if error_type is None:
+            _, error_type = self.error_control
         repetition_multiplier = self._get_total_repeats_()
         # match self.population:
         #     case FilteredPopulation():
@@ -132,6 +136,9 @@ class Evaluation:
                 repetition_multiplier=repetition_multiplier,
             )
             confs[measure.name] = confidence
+
+        total_conf = 1
+        for confidence in confs.values():
             total_conf *= confidence
 
         return total_conf, confs

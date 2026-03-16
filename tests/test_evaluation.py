@@ -291,6 +291,78 @@ class TestComputeErrorProbability:
 
         assert confidence_large >= confidence_small
 
+    def test_type_ii_default_sample_size_meets_target_power(self):
+        e = eval_inf(
+            bool_measure(),
+            mean_measure(),
+            error=0.20,
+            error_type=ErrorType.TYPE_II,
+        )
+        power, per_measure = e.compute_error_probability()
+
+        assert set(per_measure) == {m.name for m in e.measures}
+        assert all(0 <= value <= 1 for value in per_measure.values())
+        expected_power = 1
+        for measure_power in per_measure.values():
+            expected_power *= measure_power
+        assert power == expected_power
+        assert power >= 1 - e.error_control[0]
+
+    def test_type_ii_uses_weakest_measure_power(self):
+        e = eval_inf(
+            bool_measure(),
+            mean_measure(),
+            error=0.20,
+            error_type=ErrorType.TYPE_II,
+        )
+        power, per_measure = e.compute_error_probability()
+
+        expected_power = 1
+        for measure_power in per_measure.values():
+            expected_power *= measure_power
+        assert power == expected_power
+
+    def test_explicit_error_type_overrides_evaluation_default(self):
+        e = eval_inf(bool_measure(), mean_measure(), error_type=ErrorType.TYPE_I)
+
+        confidence, per_measure_confidence = e.compute_error_probability(
+            error_type=ErrorType.TYPE_I
+        )
+        power, per_measure_power = e.compute_error_probability(
+            error_type=ErrorType.TYPE_II
+        )
+
+        expected_confidence = 1
+        for measure_confidence in per_measure_confidence.values():
+            expected_confidence *= measure_confidence
+        assert confidence == expected_confidence
+        expected_power = 1
+        for measure_power in per_measure_power.values():
+            expected_power *= measure_power
+        assert power == expected_power
+
+
+class TestJointSampleSizeTarget:
+    def test_multi_measure_type_i_sample_size_meets_joint_target(self):
+        e = eval_inf(bool_measure(), mean_measure(), rank_measure())
+
+        confidence, _ = e.compute_error_probability()
+
+        assert confidence >= 1 - e.error_control[0]
+
+    def test_multi_measure_type_ii_sample_size_meets_joint_target(self):
+        e = eval_inf(
+            bool_measure(),
+            mean_measure(),
+            rank_measure(),
+            error=0.20,
+            error_type=ErrorType.TYPE_II,
+        )
+
+        power, _ = e.compute_error_probability()
+
+        assert power >= 1 - e.error_control[0]
+
 
 # =========================================================================
 # 6. Evaluation-level error properties
