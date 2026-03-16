@@ -104,7 +104,9 @@ class Evaluation:
             #             self.population.get_size(), sample_size
             #         )
 
-    def compute_error_probability(self) -> tuple[float, dict[str, float]]:
+    def compute_error_probability(
+        self, sample_size: int | None = None
+    ) -> tuple[float, dict[str, float]]:
         """Compute the family wise probability of error.
 
         Returns:
@@ -114,19 +116,29 @@ class Evaluation:
 
         confs = {}
         total_conf = 1
-        sample_size = self.__get_adjusted_sample_size__()
+        if sample_size is None:
+            sample_size = self.compute_sample_size()
+        sample_size = self.__get_adjusted_sample_size__(sample_size)
+        _, error_type = self.error_control
+        repetition_multiplier = self._get_total_repeats_()
         # match self.population:
         #     case FilteredPopulation():
         #         total_conf = self.population.filter_confidence
 
         for measure in self.measures:
-            confidence = measure.compute_error_probability(sample_size)
+            confidence = measure.compute_error_probability(
+                sample_size,
+                error_type=error_type,
+                repetition_multiplier=repetition_multiplier,
+            )
             confs[measure.name] = confidence
             total_conf *= confidence
 
         return total_conf, confs
 
-    def compute_absolute_errors(self) -> dict[str, float]:
+    def compute_absolute_errors(
+        self, sample_size: int | None = None
+    ) -> dict[str, float]:
         """Compute the absolute error of all measures of this evaluation.
 
         Returns:
@@ -136,16 +148,20 @@ class Evaluation:
 
         total_repeats = self._get_total_repeats_()
         errors = {}
-        sample_size = self.__get_adjusted_sample_size__()
-
-        confidence = self.confidence
+        if sample_size is None:
+            sample_size = self.compute_sample_size()
+        sample_size = self.__get_adjusted_sample_size__(sample_size)
+        error, error_type = self.error_control
         # match self.population:
         #     case FilteredPopulation():
         #         confidence /= self.population.filter_confidence
         repetition_multiplier = total_repeats
         for measure in self.measures:
             abs_error = measure.compute_absolute_error(
-                sample_size, 1 - confidence, repetition_multiplier
+                sample_size,
+                error,
+                error_type=error_type,
+                repetition_multiplier=repetition_multiplier,
             )
             errors[measure.name] = abs_error
 

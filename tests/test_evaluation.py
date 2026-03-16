@@ -247,3 +247,73 @@ class TestEvaluationStructure:
             measures=[bool_measure()], error_control=(0.05, ErrorType.TYPE_I)
         )
         assert isinstance(e.population, InfinitePopulation)
+
+
+# =========================================================================
+# 5. Evaluation-level confidence properties
+# =========================================================================
+
+
+class TestComputeErrorProbability:
+    def test_default_sample_size_meets_target_confidence(self):
+        e = eval_inf(bool_measure(), mean_measure())
+        confidence, per_measure = e.compute_error_probability()
+
+        assert confidence >= 1 - e.error_control[0]
+        assert set(per_measure) == {m.name for m in e.measures}
+        assert all(0 <= value <= 1 for value in per_measure.values())
+
+    def test_increases_with_sample_size(self):
+        e = eval_inf(bool_measure(), mean_measure())
+        n_base = e.compute_sample_size()
+
+        confidence_small, per_measure_small = e.compute_error_probability(
+            sample_size=max(1, n_base // 2)
+        )
+        confidence_large, per_measure_large = e.compute_error_probability(
+            sample_size=n_base * 2
+        )
+
+        assert confidence_large >= confidence_small
+        for name in per_measure_small:
+            assert per_measure_large[name] >= per_measure_small[name]
+
+    def test_finite_population_confidence_increases_with_sample_size(self):
+        e = eval_fin(bool_measure(), mean_measure(), pop_size=50_000)
+        n_base = e.compute_sample_size()
+
+        confidence_small, _ = e.compute_error_probability(
+            sample_size=max(1, n_base // 2)
+        )
+        confidence_large, _ = e.compute_error_probability(
+            sample_size=min(2 * n_base, 40_000)
+        )
+
+        assert confidence_large >= confidence_small
+
+
+# =========================================================================
+# 6. Evaluation-level error properties
+# =========================================================================
+
+
+class TestComputeAbsoluteErrors:
+    def test_decreases_with_sample_size(self):
+        measures = [bool_measure(), mean_measure(), rank_measure()]
+        e = eval_inf(*measures)
+        n_base = e.compute_sample_size()
+
+        errors_small = e.compute_absolute_errors(sample_size=max(1, n_base // 2))
+        errors_large = e.compute_absolute_errors(sample_size=n_base * 2)
+
+        for measure in measures:
+            assert errors_large[measure.name] <= errors_small[measure.name]
+
+    def test_default_sample_size_respects_requested_tolerances(self):
+        measures = [bool_measure(), mean_measure(), rank_measure()]
+        e = eval_inf(*measures)
+
+        errors = e.compute_absolute_errors()
+
+        for measure in measures:
+            assert errors[measure.name] <= measure.absolute_error
