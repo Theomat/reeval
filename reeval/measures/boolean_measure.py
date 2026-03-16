@@ -27,6 +27,20 @@ class BooleanMeasure(Measure):
     absolute_error: float | None = field(default=None)
     """Absolute error of the measure.
     """
+    accuracy: float = field(default=1.0)
+    """Accuracy of the labels being sampled.
+    """
+    precision: float = field(default=1.0)
+    """Precision of the labels being sampled.
+    """
+    recall: float = field(default=1.0)
+    """Recall of the labels being sampled.
+    """
+
+    def _effective_std(self) -> float:
+        base_std = __DEFAULT_STD__ if self.std is None else self.std
+        effective_std = base_std / (2 * self.accuracy - 1)
+        return effective_std * self.precision / self.recall
 
     def compute_sample_size(
         self,
@@ -34,7 +48,7 @@ class BooleanMeasure(Measure):
         error_type: ErrorType = ErrorType.TYPE_I,
         repetition_multiplier: int = 1,
     ):
-        std = __DEFAULT_STD__ if self.std is None else self.std
+        std = self._effective_std()
         match error_type:
             case ErrorType.TYPE_I:
                 # Controls false positive rate α using two-sided normal quantile z_{α/2}
@@ -54,7 +68,7 @@ class BooleanMeasure(Measure):
         error_type: ErrorType = ErrorType.TYPE_I,
         repetition_multiplier: int = 1,
     ):
-        std = __DEFAULT_STD__ if self.std is None else self.std
+        std = self._effective_std()
         match error_type:
             case ErrorType.TYPE_I:
                 # Two-sided CI half-width at (1-α) level: z_{α/2} · σ / √n
@@ -74,7 +88,7 @@ class BooleanMeasure(Measure):
         repetition_multiplier: int = 1,
     ):
         adjusted_sample_size = math.sqrt(sample_size)
-        std = __DEFAULT_STD__ if self.std is None else self.std
+        std = self._effective_std()
         match error_type:
             case ErrorType.TYPE_I:
                 # Confidence level 1 - α: Φ(√n · δ/σ) = 1 - α/2, invert for α
@@ -97,8 +111,8 @@ class BooleanMeasure(Measure):
 
     def test_different(
         self,
-        sample1: list[bool],
-        sample2: list[bool],
+        sample1: list[bool | int],
+        sample2: list[bool | int],
         error: float = 0.05,
         error_type: ErrorType = ErrorType.TYPE_I,
     ) -> tuple[float, float, tuple[float, float], float, float]:
@@ -121,7 +135,33 @@ class BooleanMeasure(Measure):
             float: Type I error (α) for the given sample size
             float: Type II error (β) for the given sample size
         """
-        s1, s2 = sum(sample1), sum(sample2)
+
+        def to_binary(value: bool | int) -> int:
+            if isinstance(value, bool):
+                return int(value)
+            if isinstance(value, int) and value in (0, 1):
+                return value
+            raise ValueError(
+                "BooleanMeasure.test_different expects binary values (bool or 0/1 int)."
+            )
+
+        if 2 * self.accuracy - 1 <= 0:
+            raise ValueError("accuracy must be strictly greater than 0.5.")
+        if self.recall <= 0:
+            raise ValueError("recall must be strictly positive.")
+
+        def adjust_successes(sample: list[bool | int]) -> int:
+            n = len(sample)
+            observed_successes = sum(to_binary(v) for v in sample)
+            observed_rate = observed_successes / n
+            adjusted_rate = observed_rate * self.precision / self.recall
+            adjusted_rate = (adjusted_rate + self.accuracy - 1) / (
+                2 * self.accuracy - 1
+            )
+            adjusted_rate = min(1.0, max(0.0, adjusted_rate))
+            return int(round(adjusted_rate * n))
+
+        s1, s2 = adjust_successes(sample1), adjust_successes(sample2)
         f1, f2 = len(sample1) - s1, len(sample2) - s2
         table = [[s1, f1], [s2, f2]]
         result = stats.fisher_exact(table)
@@ -151,9 +191,14 @@ def CategoricalMeasures(
     categories: int,
     std: float | None = None,
     absolute_error: float | None = None,
+    accuracy: float = 1,
+    precision: float = 1,
+    recall: float = 1,
     repeats: int = 1,
 ) -> list[BooleanMeasure]:
     return [
-        BooleanMeasure(f"{name}_{i}", repeats, std, absolute_error)
+        BooleanMeasure(
+            f"{name}_{i}", repeats, std, absolute_error, accuracy, precision, recall
+        )
         for i in range(categories)
     ]
