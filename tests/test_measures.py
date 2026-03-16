@@ -167,6 +167,54 @@ class TestSampleSizeIncreasesWithUncertainty:
             0.05, ErrorType.TYPE_I
         ) >= m_small.compute_sample_size(0.05, ErrorType.TYPE_I)
 
+    @pytest.mark.parametrize("sensitivity", [0.99, 0.95, 0.9, 0.75])
+    def test_boolean_lower_sensitivity_needs_more_samples(self, sensitivity):
+        baseline = BooleanMeasure(
+            name="b", absolute_error=0.05, sensitivity=1.0, specificity=1.0
+        )
+        adjusted = BooleanMeasure(
+            name="b",
+            absolute_error=0.05,
+            sensitivity=sensitivity,
+            specificity=1.0,
+        )
+
+        assert adjusted.compute_sample_size(
+            0.05, ErrorType.TYPE_I
+        ) >= baseline.compute_sample_size(0.05, ErrorType.TYPE_I)
+
+    @pytest.mark.parametrize("specificity", [0.99, 0.95, 0.9, 0.75])
+    def test_boolean_lower_specificity_needs_more_samples(self, specificity):
+        baseline = BooleanMeasure(
+            name="b", absolute_error=0.05, sensitivity=1.0, specificity=1.0
+        )
+        adjusted = BooleanMeasure(
+            name="b",
+            absolute_error=0.05,
+            sensitivity=1.0,
+            specificity=specificity,
+        )
+
+        assert adjusted.compute_sample_size(
+            0.05, ErrorType.TYPE_I
+        ) >= baseline.compute_sample_size(0.05, ErrorType.TYPE_I)
+
+    @pytest.mark.parametrize("quality", [0.99, 0.95, 0.9, 0.75])
+    def test_boolean_lower_joint_label_quality_needs_more_samples(self, quality):
+        baseline = BooleanMeasure(
+            name="b", absolute_error=0.05, sensitivity=1.0, specificity=1.0
+        )
+        adjusted = BooleanMeasure(
+            name="b",
+            absolute_error=0.05,
+            sensitivity=quality,
+            specificity=quality,
+        )
+
+        assert adjusted.compute_sample_size(
+            0.05, ErrorType.TYPE_I
+        ) >= baseline.compute_sample_size(0.05, ErrorType.TYPE_I)
+
 
 # =========================================================================
 # 1b. compute_sample_size – TYPE_II properties
@@ -779,27 +827,45 @@ class TestEffectSizeOddsRatio:
         with pytest.raises(ValueError):
             bool_measure.test_different([0, 1, 2], [0, 1, 1])
 
-    def test_accuracy_changes_test_different_result(self):
-        """Accuracy should influence adjusted contingency counts and OR."""
+    def test_sensitivity_changes_test_different_result(self):
+        """Sensitivity should influence adjusted contingency counts and OR."""
         s1 = [1] * 130 + [0] * 70
         s2 = [1] * 100 + [0] * 100
 
-        m_high_acc = BooleanMeasure(name="b_hi_acc", absolute_error=0.05, accuracy=1.0)
-        m_low_acc = BooleanMeasure(name="b_lo_acc", absolute_error=0.05, accuracy=0.9)
+        m_high_se = BooleanMeasure(
+            name="b_hi_se",
+            absolute_error=0.05,
+            sensitivity=1.0,
+            specificity=1.0,
+        )
+        m_low_se = BooleanMeasure(
+            name="b_lo_se",
+            absolute_error=0.05,
+            sensitivity=0.9,
+            specificity=1.0,
+        )
 
-        _, or_high_acc, *_ = m_high_acc.test_different(s1, s2)
-        _, or_low_acc, *_ = m_low_acc.test_different(s1, s2)
+        _, or_high_se, *_ = m_high_se.test_different(s1, s2)
+        _, or_low_se, *_ = m_low_se.test_different(s1, s2)
 
-        assert or_high_acc != pytest.approx(or_low_acc)
+        assert or_high_se != pytest.approx(or_low_se)
 
-    def test_precision_recall_change_test_different_result(self):
-        """Precision/recall should influence adjusted contingency counts and OR."""
+    def test_specificity_changes_test_different_result(self):
+        """Specificity should influence adjusted contingency counts and OR."""
         s1 = [1] * 130 + [0] * 70
         s2 = [1] * 100 + [0] * 100
 
-        m_baseline = BooleanMeasure(name="b_base", absolute_error=0.05, accuracy=1.0)
+        m_baseline = BooleanMeasure(
+            name="b_base",
+            absolute_error=0.05,
+            sensitivity=1.0,
+            specificity=1.0,
+        )
         m_adjusted = BooleanMeasure(
-            name="b_adj", absolute_error=0.05, accuracy=1.0, precision=0.8, recall=0.9
+            name="b_adj",
+            absolute_error=0.05,
+            sensitivity=1.0,
+            specificity=0.9,
         )
 
         _, or_baseline, *_ = m_baseline.test_different(s1, s2)

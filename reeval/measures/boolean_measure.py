@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 import logging
 import math
+
 from reeval.error_type import ErrorType
 from reeval.measures.measure import (
     Measure,
@@ -27,20 +28,29 @@ class BooleanMeasure(Measure):
     absolute_error: float | None = field(default=None)
     """Absolute error of the measure.
     """
-    accuracy: float = field(default=1.0)
-    """Accuracy of the labels being sampled.
+    sensitivity: float = field(default=1.0)
+    """Sensitivity of the labels being sampled, i.e. P(observed=1 | true=1).
     """
-    precision: float = field(default=1.0)
-    """Precision of the labels being sampled.
-    """
-    recall: float = field(default=1.0)
-    """Recall of the labels being sampled.
+    specificity: float = field(default=1.0)
+    """Specificity of the labels being sampled, i.e. P(observed=0 | true=0).
     """
 
     def _effective_std(self) -> float:
-        base_std = __DEFAULT_STD__ if self.std is None else self.std
-        effective_std = base_std / (2 * self.accuracy - 1)
-        return effective_std * self.precision / self.recall
+        std = __DEFAULT_STD__ if self.std is None else self.std
+        correction = self.sensitivity + self.specificity - 1
+        if correction <= 0:
+            raise ValueError(
+                "sensitivity + specificity must be strictly greater than 1."
+            )
+        # Standard prevalence correction for imperfect binary labels:
+        # p = (q + Sp - 1) / (Se + Sp - 1),
+        # where p is the true Bernoulli rate, q the observed positive rate,
+        # Se sensitivity, and Sp specificity.
+        #
+        # This is an affine transform of q, so:
+        # Var[p] = Var[q] / (Se + Sp - 1)^2
+        # and therefore std[p] = std[q] / |Se + Sp - 1|.
+        return std / correction
 
     def compute_sample_size(
         self,
@@ -145,19 +155,17 @@ class BooleanMeasure(Measure):
                 "BooleanMeasure.test_different expects binary values (bool or 0/1 int)."
             )
 
-        if 2 * self.accuracy - 1 <= 0:
-            raise ValueError("accuracy must be strictly greater than 0.5.")
-        if self.recall <= 0:
-            raise ValueError("recall must be strictly positive.")
+        correction = self.sensitivity + self.specificity - 1
+        if correction <= 0:
+            raise ValueError(
+                "sensitivity + specificity must be strictly greater than 1."
+            )
 
         def adjust_successes(sample: list[bool | int]) -> int:
             n = len(sample)
             observed_successes = sum(to_binary(v) for v in sample)
             observed_rate = observed_successes / n
-            adjusted_rate = observed_rate * self.precision / self.recall
-            adjusted_rate = (adjusted_rate + self.accuracy - 1) / (
-                2 * self.accuracy - 1
-            )
+            adjusted_rate = (observed_rate + self.specificity - 1) / correction
             adjusted_rate = min(1.0, max(0.0, adjusted_rate))
             return int(round(adjusted_rate * n))
 
@@ -191,14 +199,18 @@ def CategoricalMeasures(
     categories: int,
     std: float | None = None,
     absolute_error: float | None = None,
-    accuracy: float = 1,
-    precision: float = 1,
-    recall: float = 1,
+    sensitivity: float = 1,
+    specificity: float = 1,
     repeats: int = 1,
 ) -> list[BooleanMeasure]:
     return [
         BooleanMeasure(
-            f"{name}_{i}", repeats, std, absolute_error, accuracy, precision, recall
+            name=f"{name}_{i}",
+            repeats=repeats,
+            std=std,
+            absolute_error=absolute_error,
+            sensitivity=sensitivity,
+            specificity=specificity,
         )
         for i in range(categories)
     ]

@@ -127,6 +127,57 @@ print(f"Required sample size: {n}")
 # => Required sample size: 865  (smaller because the variance is lower)
 ```
 
+You can also account for imperfect labels by setting `sensitivity` and `specificity`. The library uses the standard prevalence correction
+`p = (q + specificity - 1) / (sensitivity + specificity - 1)`, so the effective standard deviation is inflated by the identifiability factor `1 / (sensitivity + specificity - 1)`:
+
+```python
+from reeval.measures import BooleanMeasure
+from reeval.error_type import ErrorType
+
+# Labels are not perfect:
+# - 97% sensitivity
+# - 98% specificity
+measure = BooleanMeasure(
+    name="accuracy",
+    absolute_error=0.02,
+    sensitivity=0.97,
+    specificity=0.98,
+)
+
+n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+print(f"Required sample size with noisy labels: {n}")
+```
+
+If you want to model only one aspect of label quality, you can set the other one to `1.0`:
+
+```python
+from reeval.measures import BooleanMeasure
+from reeval.error_type import ErrorType
+
+# Only account for sensitivity
+sensitivity_measure = BooleanMeasure(
+    name="accuracy",
+    absolute_error=0.02,
+    sensitivity=0.9,
+)
+
+# Only account for specificity
+specificity_measure = BooleanMeasure(
+    name="accuracy",
+    absolute_error=0.02,
+    specificity=0.95,
+)
+
+for label, measure in [
+    ("sensitivity", sensitivity_measure),
+    ("specificity", specificity_measure),
+]:
+    n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+    print(f"{label}: {n}")
+```
+
+Lower `sensitivity` or `specificity` increases the effective uncertainty in this model and therefore increases the computed sample size. As `sensitivity + specificity` approaches `1`, the corrected prevalence becomes non-identifiable and the required sample size diverges.
+
 ---
 
 ### 2. Mean measure with known standard deviation

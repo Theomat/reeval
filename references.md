@@ -1,6 +1,10 @@
 
 Here is a list of references on what formulas are being used:
 
+## Specficity and Sensivity Adjustement for BooleanMeasure
+
+- AR Cameron, FC Baldock (1998), A new probability formula for surveys to substantiate freedom from disease, Preventive Veterinary medecine, Elsevier
+
 ## Multiple Hypothesis testing
 
 For multiple hypothesis testing, we control the Family-Wise Error Rate (FWER) and use Bonferroni's method.
