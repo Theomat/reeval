@@ -763,6 +763,50 @@ class TestEffectSizeOddsRatio:
         assert lo == 0.0
         assert hi == math.inf
 
+    def test_accepts_binary_int_samples(self, bool_measure):
+        """Binary int inputs (0/1) should be handled like booleans."""
+        s1 = [1] * 70 + [0] * 30
+        s2 = [1] * 50 + [0] * 50
+        p, odds_ratio, ci, *_ = bool_measure.test_different(
+            s1, s2, error=0.05, error_type=ErrorType.TYPE_I
+        )
+        assert 0 <= p <= 1
+        assert odds_ratio >= 0
+        assert len(ci) == 2
+
+    def test_rejects_non_binary_int_samples(self, bool_measure):
+        """Only binary ints are valid for BooleanMeasure.test_different."""
+        with pytest.raises(ValueError):
+            bool_measure.test_different([0, 1, 2], [0, 1, 1])
+
+    def test_accuracy_changes_test_different_result(self):
+        """Accuracy should influence adjusted contingency counts and OR."""
+        s1 = [1] * 130 + [0] * 70
+        s2 = [1] * 100 + [0] * 100
+
+        m_high_acc = BooleanMeasure(name="b_hi_acc", absolute_error=0.05, accuracy=1.0)
+        m_low_acc = BooleanMeasure(name="b_lo_acc", absolute_error=0.05, accuracy=0.9)
+
+        _, or_high_acc, *_ = m_high_acc.test_different(s1, s2)
+        _, or_low_acc, *_ = m_low_acc.test_different(s1, s2)
+
+        assert or_high_acc != pytest.approx(or_low_acc)
+
+    def test_precision_recall_change_test_different_result(self):
+        """Precision/recall should influence adjusted contingency counts and OR."""
+        s1 = [1] * 130 + [0] * 70
+        s2 = [1] * 100 + [0] * 100
+
+        m_baseline = BooleanMeasure(name="b_base", absolute_error=0.05, accuracy=1.0)
+        m_adjusted = BooleanMeasure(
+            name="b_adj", absolute_error=0.05, accuracy=1.0, precision=0.8, recall=0.9
+        )
+
+        _, or_baseline, *_ = m_baseline.test_different(s1, s2)
+        _, or_adjusted, *_ = m_adjusted.test_different(s1, s2)
+
+        assert or_baseline != pytest.approx(or_adjusted)
+
 
 # =========================================================================
 # 5c. test_different – TYPE_II CI properties
