@@ -1,3 +1,4 @@
+from reeval.error_control import ErrorControl
 from reeval.evaluation import Evaluation
 from reeval.measures import (
     Measure,

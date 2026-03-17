@@ -2,11 +2,14 @@ from dataclasses import dataclass, field
 import logging
 import math
 
-from reeval.error_type import ErrorType
+from reeval.error_control import AlphaErrorControl, ErrorControl
 from reeval.measures.measure import (
     Measure,
     apply_bonferroni,
     normal_cdf,
+    normal_min_detectable_effect,
+    normal_power,
+    normal_power_sample_size,
     normal_sample_size,
     normal_z,
     reverse_bonferroni,
@@ -54,77 +57,80 @@ class BooleanMeasure(Measure):
 
     def compute_sample_size(
         self,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ):
         std = self._effective_std()
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Controls false positive rate α using two-sided normal quantile z_{α/2}
-                # n = (z_{α/2} · σ / δ)²
-                alpha = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                return normal_sample_size(alpha, std, self.absolute_error)
-            case ErrorType.TYPE_II:
-                # Power analysis: minimum n to achieve power 1-β
-                # n = (z_β · σ / δ)² where z_β = Φ⁻¹(1-β), using one-sided quantile
-                beta = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                return normal_sample_size(2 * beta, std, self.absolute_error)
+        if isinstance(error_control, AlphaErrorControl):
+            alpha = apply_bonferroni(
+                error_control.alpha, self.repeats * repetition_multiplier
+            )
+            return normal_sample_size(alpha, std, self.absolute_error)
+        alpha = apply_bonferroni(
+            error_control.significance_level, self.repeats * repetition_multiplier
+        )
+        beta = apply_bonferroni(
+            error_control.beta, self.repeats * repetition_multiplier
+        )
+        return normal_power_sample_size(alpha, beta, std, self.absolute_error)
 
     def compute_absolute_error(
         self,
         sample_size: int,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ):
         std = self._effective_std()
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Two-sided CI half-width at (1-α) level: z_{α/2} · σ / √n
-                alpha = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                z = normal_z(alpha) * std
-            case ErrorType.TYPE_II:
-                # Minimum detectable effect at power 1-β: z_β · σ / √n
-                # z_β = Φ⁻¹(1-β), one-sided power quantile
-                beta = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                z = normal_z(2 * beta) * std
+        if isinstance(error_control, AlphaErrorControl):
+            alpha = apply_bonferroni(
+                error_control.alpha, self.repeats * repetition_multiplier
+            )
+            z = normal_z(alpha) * std
+        else:
+            alpha = apply_bonferroni(
+                error_control.significance_level, self.repeats * repetition_multiplier
+            )
+            beta = apply_bonferroni(
+                error_control.beta, self.repeats * repetition_multiplier
+            )
+            return normal_min_detectable_effect(alpha, beta, std, sample_size)
         return z / math.sqrt(sample_size)
 
     def compute_error_probability(
         self,
         sample_size: int,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ):
         adjusted_sample_size = math.sqrt(sample_size)
         std = self._effective_std()
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Confidence level 1 - α: Φ(√n · δ/σ) = 1 - α/2, invert for α
-                confidence = normal_cdf(
-                    adjusted_sample_size * self.absolute_error / std
-                )
-                alpha = reverse_bonferroni(
-                    1 - confidence, self.repeats * repetition_multiplier
-                )
-                return 1 - alpha
-            case ErrorType.TYPE_II:
-                # Power 1 - β: Φ(√n · δ/σ) = 1 - β (one-sided), invert for β
-                confidence = normal_cdf(
-                    adjusted_sample_size * self.absolute_error / std
-                )
-                beta = reverse_bonferroni(
-                    1 - confidence, self.repeats * repetition_multiplier
-                )
-                return 1 - beta
+        if isinstance(error_control, AlphaErrorControl):
+            tail_probability = 2 * (
+                1 - normal_cdf(adjusted_sample_size * self.absolute_error / std)
+            )
+            alpha = reverse_bonferroni(
+                tail_probability, self.repeats * repetition_multiplier
+            )
+            alpha = min(max(alpha, 0.0), 1.0)
+            return 1 - alpha
+        alpha = apply_bonferroni(
+            error_control.significance_level, self.repeats * repetition_multiplier
+        )
+        raw_power = normal_power(
+            adjusted_sample_size * self.absolute_error / std, alpha
+        )
+        beta = reverse_bonferroni(
+            1 - raw_power,
+            self.repeats * repetition_multiplier,
+        )
+        beta = min(max(beta, 0.0), 1.0)
+        return 1 - beta
 
     def test_different(
         self,
         sample1: list[bool | int],
         sample2: list[bool | int],
-        error: float = 0.05,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
     ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
@@ -133,10 +139,9 @@ class BooleanMeasure(Measure):
         Args:
             sample1 (list[float]):
             sample2 (list[float]):
-            error (float): error rate for the odds ratio CI; interpreted as α (TYPE_I)
-                or β (TYPE_II)
-            error_type (ErrorType): TYPE_I uses two-sided CI at (1-α) level;
-                TYPE_II uses one-sided power CI at (1-β) level (Woolf logit method)
+            error_control (ErrorControl): alpha control gives a two-sided
+                odds-ratio interval; power control gives the narrower
+                beta-calibrated interval.
 
         Returns:
             float: the p-value obtained
@@ -175,13 +180,16 @@ class BooleanMeasure(Measure):
         result = stats.fisher_exact(table)
         odds_ratio = result.statistic
         # Woolf logit method for CI: SE(log(OR)) = sqrt(1/a + 1/b + 1/c + 1/d)
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Two-sided CI at (1-α) level: z_{α/2} = Φ⁻¹(1-α/2)
-                z = -stats.norm.ppf(error / 2)
-            case ErrorType.TYPE_II:
-                # Power-focused CI at (1-β) level: one-sided z_β = Φ⁻¹(1-β)
-                z = -stats.norm.ppf(error)
+        if isinstance(error_control, AlphaErrorControl):
+            z = -stats.norm.ppf(error_control.alpha / 2)
+            type_ii_control = ErrorControl.type_ii(
+                error_control.alpha, significance_level=error_control.alpha
+            )
+            type_i_control = error_control
+        else:
+            z = -stats.norm.ppf(error_control.beta)
+            type_ii_control = error_control
+            type_i_control = ErrorControl.type_i(error_control.significance_level)
         if 0 in (s1, f1, s2, f2):
             ci = (0.0, math.inf)
         else:
@@ -189,8 +197,8 @@ class BooleanMeasure(Measure):
             se = math.sqrt(1 / s1 + 1 / f1 + 1 / s2 + 1 / f2)
             ci = (math.exp(log_or - z * se), math.exp(log_or + z * se))
         n = min(len(sample1), len(sample2))
-        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
-        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
+        type_i_error = 1 - self.compute_error_probability(n, type_i_control)
+        type_ii_error = 1 - self.compute_error_probability(n, type_ii_control)
         return result.pvalue, odds_ratio, ci, type_i_error, type_ii_error
 
 

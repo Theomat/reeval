@@ -1,10 +1,13 @@
 from dataclasses import dataclass, field
 import math
-from reeval.error_type import ErrorType
+from reeval.error_control import AlphaErrorControl, ErrorControl
 from reeval.measures.measure import (
     Measure,
     apply_bonferroni,
     normal_cdf,
+    normal_min_detectable_effect,
+    normal_power,
+    normal_power_sample_size,
     normal_sample_size,
     normal_z,
     reverse_bonferroni,
@@ -29,100 +32,96 @@ class MeanMeasure(Measure):
 
     def compute_sample_size(
         self,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ):
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Controls false positive rate α; uses two-sided quantile z_{α/2}
-                # n = (z_{α/2} · σ / δ)² (normal) or iterative Student-t equivalent
-                alpha = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                if self.std is None:
-                    return student_sample_size(alpha, self.absolute_error)
-                else:
-                    return normal_sample_size(alpha, self.std, self.absolute_error)
-            case ErrorType.TYPE_II:
-                # Power analysis: minimum n to achieve power 1-β
-                # n = (z_β · σ / δ)² where z_β = Φ⁻¹(1-β), one-sided quantile
-                # (or iterative Student-t equivalent for unknown σ)
-                beta = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                if self.std is None:
-                    return student_sample_size(2 * beta, self.absolute_error)
-                else:
-                    return normal_sample_size(2 * beta, self.std, self.absolute_error)
+        if isinstance(error_control, AlphaErrorControl):
+            alpha = apply_bonferroni(
+                error_control.alpha, self.repeats * repetition_multiplier
+            )
+            if self.std is None:
+                return student_sample_size(alpha, self.absolute_error)
+            return normal_sample_size(alpha, self.std, self.absolute_error)
+        alpha = apply_bonferroni(
+            error_control.significance_level, self.repeats * repetition_multiplier
+        )
+        beta = apply_bonferroni(
+            error_control.beta, self.repeats * repetition_multiplier
+        )
+        if self.std is None:
+            return normal_power_sample_size(alpha, beta, 1.0, self.absolute_error)
+        return normal_power_sample_size(alpha, beta, self.std, self.absolute_error)
 
     def compute_absolute_error(
         self,
         sample_size: int,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ):
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Two-sided CI half-width at (1-α) level: z_{α/2} · σ / √n
-                alpha = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                if self.std is None:
-                    z = student_z(alpha)
-                else:
-                    z = normal_z(alpha) * self.std
-                    return z / math.sqrt(sample_size)
-            case ErrorType.TYPE_II:
-                # Minimum detectable effect at power 1-β: z_β · σ / √n
-                # z_β = Φ⁻¹(1-β), one-sided power quantile
-                beta = apply_bonferroni(error, self.repeats * repetition_multiplier)
-                if self.std is None:
-                    z = student_z(2 * beta)
-                else:
-                    z = normal_z(2 * beta) * self.std
-                    return z / math.sqrt(sample_size)
+        if isinstance(error_control, AlphaErrorControl):
+            alpha = apply_bonferroni(
+                error_control.alpha, self.repeats * repetition_multiplier
+            )
+            if self.std is None:
+                z = student_z(alpha, sample_size)
+            else:
+                z = normal_z(alpha) * self.std
+                return z / math.sqrt(sample_size)
+        else:
+            alpha = apply_bonferroni(
+                error_control.significance_level, self.repeats * repetition_multiplier
+            )
+            beta = apply_bonferroni(
+                error_control.beta, self.repeats * repetition_multiplier
+            )
+            if self.std is None:
+                return normal_min_detectable_effect(alpha, beta, 1.0, sample_size)
+            return normal_min_detectable_effect(alpha, beta, self.std, sample_size)
+        return z / math.sqrt(sample_size)
 
     def compute_error_probability(
         self,
         sample_size: int,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ):
         adjusted_sample_size = math.sqrt(sample_size)
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Confidence level 1 - α (two-sided)
-                if self.std is None:
-                    confidence = student_cdf(
-                        adjusted_sample_size * self.absolute_error / self.std,
+        scale = 1.0 if self.std is None else self.std
+        if isinstance(error_control, AlphaErrorControl):
+            if self.std is None:
+                tail_probability = 2 * (
+                    1
+                    - student_cdf(
+                        adjusted_sample_size * self.absolute_error / scale,
                         sample_size,
                     )
-                else:
-                    confidence = normal_cdf(
-                        adjusted_sample_size * self.absolute_error / self.std
-                    )
-                alpha = reverse_bonferroni(
-                    1 - confidence, self.repeats * repetition_multiplier
                 )
-                return 1 - alpha
-            case ErrorType.TYPE_II:
-                # Power 1 - β (one-sided): Φ(√n · δ/σ) = 1 - β, invert for β
-                if self.std is None:
-                    confidence = student_cdf(
-                        adjusted_sample_size * self.absolute_error / self.std,
-                        sample_size,
-                    )
-                else:
-                    confidence = normal_cdf(
-                        adjusted_sample_size * self.absolute_error / self.std
-                    )
-                beta = reverse_bonferroni(
-                    1 - confidence, self.repeats * repetition_multiplier
+            else:
+                tail_probability = 2 * (
+                    1
+                    - normal_cdf(adjusted_sample_size * self.absolute_error / self.std)
                 )
-                return 1 - beta
+            alpha = reverse_bonferroni(
+                tail_probability, self.repeats * repetition_multiplier
+            )
+            alpha = min(max(alpha, 0.0), 1.0)
+            return 1 - alpha
+        alpha = apply_bonferroni(
+            error_control.significance_level, self.repeats * repetition_multiplier
+        )
+        effect_z = adjusted_sample_size * self.absolute_error / scale
+        tail_probability = 1 - normal_power(effect_z, alpha)
+        beta = reverse_bonferroni(
+            tail_probability, self.repeats * repetition_multiplier
+        )
+        beta = min(max(beta, 0.0), 1.0)
+        return 1 - beta
 
     def test_different(
         self,
         sample1: list[float],
         sample2: list[float],
-        error: float = 0.05,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
     ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
@@ -131,9 +130,8 @@ class MeanMeasure(Measure):
         Args:
             sample1 (list[float]):
             sample2 (list[float]):
-            error (float): error rate for the CI; interpreted as α (TYPE_I) or β (TYPE_II)
-            error_type (ErrorType): TYPE_I uses two-sided CI at (1-α) level;
-                TYPE_II uses one-sided power CI at (1-β) level (normal approximation for A12)
+            error_control (ErrorControl): alpha control gives a two-sided CI;
+                power control gives the narrower beta-calibrated interval.
 
         Returns:
             float: the p-value obtained
@@ -145,8 +143,18 @@ class MeanMeasure(Measure):
         result = stats.ttest_ind(sample1, sample2, equal_var=False)
         p_value = result.pvalue
         n = min(len(sample1), len(sample2))
-        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
-        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
+        if isinstance(error_control, AlphaErrorControl):
+            z = stats.norm.ppf(1 - error_control.alpha / 2)
+            type_i_control = error_control
+            type_ii_control = ErrorControl.type_ii(
+                error_control.alpha, significance_level=error_control.alpha
+            )
+        else:
+            z = stats.norm.ppf(1 - error_control.beta)
+            type_i_control = ErrorControl.type_i(error_control.significance_level)
+            type_ii_control = error_control
+        type_i_error = 1 - self.compute_error_probability(n, type_i_control)
+        type_ii_error = 1 - self.compute_error_probability(n, type_ii_control)
         # When both samples have zero variance (e.g. constant values),
         # ttest_ind returns NaN and mannwhitneyu is unreliable.
         # Treat as no difference: p=1, A12=0.5, degenerate CI.
@@ -160,13 +168,6 @@ class MeanMeasure(Measure):
 
         # Normal approximation CI for A12
         se = math.sqrt((n1 + n2 + 1) / (12 * n1 * n2))
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Two-sided CI at (1-α) level: z_{α/2} = Φ⁻¹(1-α/2)
-                z = stats.norm.ppf(1 - error / 2)
-            case ErrorType.TYPE_II:
-                # Power-focused CI at (1-β) level: one-sided z_β = Φ⁻¹(1-β)
-                z = stats.norm.ppf(1 - error)
         ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
 
         return p_value, a12, ci, type_i_error, type_ii_error
@@ -175,8 +176,7 @@ class MeanMeasure(Measure):
         self,
         sample1: list[float],
         sample2: list[float],
-        error: float = 0.05,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
     ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples where data is paired of the given measure.
         It checks if the parameters are the same.
@@ -185,9 +185,8 @@ class MeanMeasure(Measure):
         Args:
             sample1 (list[float]):
             sample2 (list[float]):
-            error (float): error rate for the CI; interpreted as α (TYPE_I) or β (TYPE_II)
-            error_type (ErrorType): TYPE_I uses two-sided CI at (1-α) level;
-                TYPE_II uses one-sided power CI at (1-β) level (normal approximation for A12)
+            error_control (ErrorControl): alpha control gives a two-sided CI;
+                power control gives the narrower beta-calibrated interval.
 
         Returns:
             float: the p-value obtained
@@ -199,8 +198,18 @@ class MeanMeasure(Measure):
         result = stats.wilcoxon(sample1, sample2)
         p_value = result.pvalue
         n = min(len(sample1), len(sample2))
-        type_i_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_I)
-        type_ii_error = 1 - self.compute_error_probability(n, ErrorType.TYPE_II)
+        if isinstance(error_control, AlphaErrorControl):
+            z = stats.norm.ppf(1 - error_control.alpha / 2)
+            type_i_control = error_control
+            type_ii_control = ErrorControl.type_ii(
+                error_control.alpha, significance_level=error_control.alpha
+            )
+        else:
+            z = stats.norm.ppf(1 - error_control.beta)
+            type_i_control = ErrorControl.type_i(error_control.significance_level)
+            type_ii_control = error_control
+        type_i_error = 1 - self.compute_error_probability(n, type_i_control)
+        type_ii_error = 1 - self.compute_error_probability(n, type_ii_control)
         # When both samples have zero variance (e.g. constant values),
         # ttest_ind returns NaN and mannwhitneyu is unreliable.
         # Treat as no difference: p=1, A12=0.5, degenerate CI.
@@ -214,13 +223,6 @@ class MeanMeasure(Measure):
 
         # Normal approximation CI for A12
         se = math.sqrt((n1 + n2 + 1) / (12 * n1 * n2))
-        match error_type:
-            case ErrorType.TYPE_I:
-                # Two-sided CI at (1-α) level: z_{α/2} = Φ⁻¹(1-α/2)
-                z = stats.norm.ppf(1 - error / 2)
-            case ErrorType.TYPE_II:
-                # Power-focused CI at (1-β) level: one-sided z_β = Φ⁻¹(1-β)
-                z = stats.norm.ppf(1 - error)
         ci = (max(0.0, a12 - z * se), min(1.0, a12 + z * se))
 
         return p_value, a12, ci, type_i_error, type_ii_error

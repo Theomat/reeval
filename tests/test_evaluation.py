@@ -1,6 +1,7 @@
 import pytest
 
-from reeval.error_type import ErrorType
+from reeval.error_control import ErrorControl
+
 from reeval.evaluation import (
     Evaluation,
     apply_cochran_finite_pop,
@@ -11,6 +12,16 @@ from reeval.measures.mean_measure import MeanMeasure
 from reeval.measures.variance_measure import VarianceMeasure
 from reeval.measures.rank_measure import RankMeasure
 from reeval.population import FinitePopulation, InfinitePopulation
+
+POWER_ALPHA = 0.05
+
+
+def ec_i(alpha: float = 0.05):
+    return ErrorControl.type_i(alpha)
+
+
+def ec_ii(beta: float = 0.05, alpha: float = POWER_ALPHA):
+    return ErrorControl.type_ii(beta, significance_level=alpha)
 
 
 # ---------------------------------------------------------------------------
@@ -34,19 +45,19 @@ def rank_measure(max_rank=10, absolute_error=0.5):
     return RankMeasure(name="r", max_rank=max_rank, absolute_error=absolute_error)
 
 
-def eval_inf(*measures, error=0.05, error_type=ErrorType.TYPE_I):
+def eval_inf(*measures, error_control=None):
     return Evaluation(
         measures=measures,
         population=InfinitePopulation(),
-        error_control=(error, error_type),
+        error_control=ec_i() if error_control is None else error_control,
     )
 
 
-def eval_fin(*measures, pop_size, error=0.05, error_type=ErrorType.TYPE_I):
+def eval_fin(*measures, pop_size, error_control=None):
     return Evaluation(
         measures=measures,
         population=FinitePopulation(size=pop_size),
-        error_control=(error, error_type),
+        error_control=ec_i() if error_control is None else error_control,
     )
 
 
@@ -119,18 +130,20 @@ class TestComputeSampleSizeInfinite:
     def test_monotone_decreasing_with_error(self):
         """Lower error tolerance requires more samples."""
         n_loose = eval_inf(bool_measure()).compute_sample_size()  # default error=0.05
-        n_tight = eval_inf(bool_measure(), error=0.01).compute_sample_size()
+        n_tight = eval_inf(
+            bool_measure(), error_control=ec_i(0.01)
+        ).compute_sample_size()
         assert n_tight >= n_loose
 
-    def test_type_ii_fewer_samples_than_type_i(self):
-        """At the same error level TYPE_II requires fewer (or equal) samples than TYPE_I."""
-        n_i = eval_inf(
-            bool_measure(), error_type=ErrorType.TYPE_I
-        ).compute_sample_size()
+    def test_type_ii_more_samples_than_type_i(self):
+        """At the same nominal error level TYPE_II requires more samples because
+        power calculations must satisfy both α and β constraints."""
+        n_i = eval_inf(bool_measure(), error_control=ec_i()).compute_sample_size()
         n_ii = eval_inf(
-            bool_measure(), error_type=ErrorType.TYPE_II
+            bool_measure(),
+            error_control=ec_ii(),
         ).compute_sample_size()
-        assert n_ii <= n_i
+        assert n_ii >= n_i
 
     def test_dominated_by_most_demanding_measure(self):
         """The sample size of an evaluation is at least that of each constituent measure."""
@@ -211,8 +224,12 @@ class TestComputeSampleSizeFinite:
     def test_finite_monotone_decreasing_with_error(self):
         """Lower error requires more samples even for finite populations."""
         m = bool_measure()
-        n_loose = eval_fin(m, pop_size=5_000, error=0.20).compute_sample_size()
-        n_tight = eval_fin(m, pop_size=5_000, error=0.01).compute_sample_size()
+        n_loose = eval_fin(
+            m, pop_size=5_000, error_control=ec_i(0.20)
+        ).compute_sample_size()
+        n_tight = eval_fin(
+            m, pop_size=5_000, error_control=ec_i(0.01)
+        ).compute_sample_size()
         assert n_tight >= n_loose
 
 
@@ -243,9 +260,7 @@ class TestEvaluationStructure:
         assert e._get_total_repeats_() == 4
 
     def test_default_population_is_infinite(self):
-        e = Evaluation(
-            measures=[bool_measure()], error_control=(0.05, ErrorType.TYPE_I)
-        )
+        e = Evaluation(measures=[bool_measure()], error_control=ec_i(0.05))
         assert isinstance(e.population, InfinitePopulation)
 
 
@@ -259,7 +274,7 @@ class TestComputeErrorProbability:
         e = eval_inf(bool_measure(), mean_measure())
         confidence, per_measure = e.compute_error_probability()
 
-        assert confidence >= 1 - e.error_control[0]
+        assert confidence >= 1 - e.error_control.alpha
         assert set(per_measure) == {m.name for m in e.measures}
         assert all(0 <= value <= 1 for value in per_measure.values())
 
@@ -295,8 +310,7 @@ class TestComputeErrorProbability:
         e = eval_inf(
             bool_measure(),
             mean_measure(),
-            error=0.20,
-            error_type=ErrorType.TYPE_II,
+            error_control=ec_ii(0.20),
         )
         power, per_measure = e.compute_error_probability()
 
@@ -306,14 +320,13 @@ class TestComputeErrorProbability:
         for measure_power in per_measure.values():
             expected_power *= measure_power
         assert power == expected_power
-        assert power >= 1 - e.error_control[0]
+        assert power >= 1 - e.error_control.beta
 
     def test_type_ii_uses_weakest_measure_power(self):
         e = eval_inf(
             bool_measure(),
             mean_measure(),
-            error=0.20,
-            error_type=ErrorType.TYPE_II,
+            error_control=ec_ii(0.20),
         )
         power, per_measure = e.compute_error_probability()
 
@@ -322,14 +335,14 @@ class TestComputeErrorProbability:
             expected_power *= measure_power
         assert power == expected_power
 
-    def test_explicit_error_type_overrides_evaluation_default(self):
-        e = eval_inf(bool_measure(), mean_measure(), error_type=ErrorType.TYPE_I)
+    def test_explicit_error_control_overrides_evaluation_default(self):
+        e = eval_inf(bool_measure(), mean_measure(), error_control=ec_i())
 
         confidence, per_measure_confidence = e.compute_error_probability(
-            error_type=ErrorType.TYPE_I
+            error_control=ec_i()
         )
         power, per_measure_power = e.compute_error_probability(
-            error_type=ErrorType.TYPE_II
+            error_control=ec_ii(),
         )
 
         expected_confidence = 1
@@ -348,20 +361,19 @@ class TestJointSampleSizeTarget:
 
         confidence, _ = e.compute_error_probability()
 
-        assert confidence >= 1 - e.error_control[0]
+        assert confidence >= 1 - e.error_control.alpha
 
     def test_multi_measure_type_ii_sample_size_meets_joint_target(self):
         e = eval_inf(
             bool_measure(),
             mean_measure(),
             rank_measure(),
-            error=0.20,
-            error_type=ErrorType.TYPE_II,
+            error_control=ec_ii(0.20),
         )
 
         power, _ = e.compute_error_probability()
 
-        assert power >= 1 - e.error_control[0]
+        assert power >= 1 - e.error_control.beta
 
 
 # =========================================================================

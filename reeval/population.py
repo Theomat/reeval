@@ -18,8 +18,8 @@ class Population(ABC):
         """Return the size of this population if this population is infinite returns a negative value."""
         raise NotImplementedError()
 
-    # def filter(self, measure: BooleanMeasure, empirical_proportion: float, error: float, error_type: ErrorType = ErrorType.TYPE_I) -> 'FilteredPopulation':
-    #     return FilteredPopulation(self, (error, error_type), measure, empirical_proportion)
+    # def filter(self, measure: BooleanMeasure, empirical_proportion: float, error_control: ErrorControl) -> 'FilteredPopulation':
+    #     return FilteredPopulation(self, error_control, measure, empirical_proportion)
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ class InfinitePopulation(Population):
 # @dataclass(unsafe_hash=True)
 # class FilteredPopulation(Population):
 #     source_population: Population
-#     error_control: tuple[float, ErrorType]
+#     error_control: ErrorControl
 #     filter_measure: BooleanMeasure
 #     empirical_proportion: float
 
@@ -64,8 +64,5 @@ class InfinitePopulation(Population):
 #             )
 #             return result
 
-#     def adjust_error(self, error: float, error_type: ErrorType = ErrorType.TYPE_I) -> float:
-#         filter_error, filter_type = self.error_control
-#         if error_type == filter_type:
-#             return error - filter_error
-#         return error
+#     def adjust_error(self, error_control: ErrorControl) -> ErrorControl:
+#         return error_control

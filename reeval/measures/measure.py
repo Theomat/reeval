@@ -5,16 +5,19 @@ import math
 
 from scipy import stats
 
-from reeval.error_type import ErrorType
+from reeval.error_control import ErrorControl
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "Measure",
-    "ErrorType",
+    "ErrorControl",
     "apply_bonferroni",
     "reverse_bonferroni",
     "normal_sample_size",
+    "normal_power_sample_size",
+    "normal_power",
+    "normal_min_detectable_effect",
     "normal_z",
     "normal_cdf",
     "student_sample_size",
@@ -56,6 +59,38 @@ def normal_cdf(value: float) -> float:
     return __NORMAL__.cdf(value)
 
 
+def normal_power(effect_z: float, alpha: float) -> float:
+    logging.debug(f"normal power <- (effect_z={effect_z} alpha={alpha})")
+    critical_value = normal_z(alpha)
+    return normal_cdf(-critical_value - effect_z) + (
+        1 - normal_cdf(critical_value - effect_z)
+    )
+
+
+def normal_power_sample_size(
+    alpha: float, beta: float, std: float, absolute_error: float
+) -> int:
+    logging.debug(
+        "normal power sample size -> "
+        f"(alpha={alpha} beta={beta} std={std} abs_err={absolute_error})"
+    )
+    z_alpha = normal_z(alpha)
+    z_beta = __NORMAL__.icdf(1 - beta)
+    return int(math.ceil((((z_alpha + z_beta) * std) / absolute_error) ** 2))
+
+
+def normal_min_detectable_effect(
+    alpha: float, beta: float, std: float, sample_size: int
+) -> float:
+    logging.debug(
+        "normal min detectable effect <- "
+        f"(alpha={alpha} beta={beta} std={std} sample_size={sample_size})"
+    )
+    z_alpha = normal_z(alpha)
+    z_beta = __NORMAL__.icdf(1 - beta)
+    return ((z_alpha + z_beta) * std) / math.sqrt(sample_size)
+
+
 def student_sample_size(alpha: float, absolute_error: float) -> float:
     logging.debug(f"student sample size -> (alpha={alpha} abs_err={absolute_error})")
     sample_size = 5
@@ -89,17 +124,14 @@ class Measure(ABC):
     @abstractmethod
     def compute_sample_size(
         self,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ) -> int:
         """Compute the sample size to reach the desired error level.
         Relies on the Central Limit Theorem.
 
         Args:
-            error (float): error rate in [0; 1]; interpreted as α (TYPE_I) or β (TYPE_II)
-            error_type (ErrorType): whether to control Type I (false positive) or
-                Type II (false negative / power) error
+            error_control (ErrorControl): complete statistical error specification.
 
         Returns:
             int: sample size required
@@ -110,8 +142,7 @@ class Measure(ABC):
     def compute_absolute_error(
         self,
         sample_size: int,
-        error: float,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ) -> float:
         """Compute absolute error of the measure.
@@ -119,9 +150,7 @@ class Measure(ABC):
 
         Args:
             sample_size (int): sample size used
-            error (float): error rate in [0; 1]; interpreted as α (TYPE_I) or β (TYPE_II)
-            error_type (ErrorType): whether to control Type I (false positive) or
-                Type II (false negative / power) error
+            error_control (ErrorControl): complete statistical error specification.
 
         Returns:
             float: absolute error
@@ -132,16 +161,16 @@ class Measure(ABC):
     def compute_error_probability(
         self,
         sample_size: int,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
         repetition_multiplier: int = 1,
     ) -> float:
-        """Compute the confidence level (TYPE_I) or power (TYPE_II) reached by the target sample size.
+        """Compute the confidence level or statistical power reached by the target sample size.
         Relies on the Central Limit Theorem.
 
         Args:
             sample_size (int): sample size used
-            error_type (ErrorType): TYPE_I returns confidence level 1 - α;
-                TYPE_II returns power 1 - β
+            error_control (ErrorControl): alpha control returns confidence level 1 - α;
+                power control returns two-sided test power against the configured effect size.
 
         Returns:
             float: [0; 1]
@@ -153,8 +182,7 @@ class Measure(ABC):
         self,
         sample1: list[bool],
         sample2: list[bool],
-        error: float = 0.05,
-        error_type: ErrorType = ErrorType.TYPE_I,
+        error_control: ErrorControl = ErrorControl.type_i(0.05),
     ) -> tuple[float, float, tuple[float, float], float, float]:
         """Applies a two-tailed test for two samples of the given measure.
         It checks if the parameters are the same.
@@ -162,10 +190,9 @@ class Measure(ABC):
         Args:
             sample1 (list[float]):
             sample2 (list[float]):
-            error (float): error rate for the effect size CI; interpreted as α (TYPE_I)
-                or β (TYPE_II)
-            error_type (ErrorType): whether to control Type I (false positive) or
-                Type II (false negative / power) error
+            error_control (ErrorControl): alpha control gives a two-sided
+                confidence interval; power control gives the narrower
+                beta-calibrated interval.
 
         Returns:
             float: the p-value obtained

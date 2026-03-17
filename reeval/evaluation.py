@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 import logging
 import math
 
-from reeval.error_type import ErrorType
+from reeval.error_control import AlphaErrorControl, ErrorControl
 from reeval.measures.measure import apply_bonferroni
 from reeval.population import FinitePopulation, InfinitePopulation
 from reeval.measures import Measure
@@ -31,7 +31,9 @@ class Evaluation:
     """The measures present in this evaluation."""
     population: Population = field(default_factory=InfinitePopulation)
     """population the instances are sampled from."""
-    error_control: tuple[float, ErrorType] | None = field(default=None)
+    error_control: ErrorControl = field(
+        default_factory=lambda: ErrorControl.type_i(0.05)
+    )
 
     def __post_init__(self):
         self.measures = tuple(self.measures)
@@ -40,15 +42,27 @@ class Evaluation:
         return sum(m.repeats for m in self.measures)
 
     def _raw_sample_size_(
-        self, error: float, error_type: ErrorType = ErrorType.TYPE_I
+        self,
+        error_control: ErrorControl,
     ) -> int:
         """Compute the sample size as if pop. was infinite for the given error."""
         max_sample_size = 0
         repetition_multiplier = self._get_total_repeats_()
-        per_measure_error = apply_bonferroni(error, repetition_multiplier)
+        if isinstance(error_control, AlphaErrorControl):
+            per_measure_error_control = ErrorControl.type_i(
+                apply_bonferroni(error_control.alpha, repetition_multiplier)
+            )
+        else:
+            per_measure_error_control = ErrorControl.type_ii(
+                apply_bonferroni(error_control.beta, repetition_multiplier),
+                significance_level=apply_bonferroni(
+                    error_control.significance_level, repetition_multiplier
+                ),
+            )
         for measure in self.measures:
             sample_size = measure.compute_sample_size(
-                per_measure_error, error_type, repetition_multiplier
+                per_measure_error_control,
+                repetition_multiplier=repetition_multiplier,
             )
             max_sample_size = max(max_sample_size, sample_size)
         return max_sample_size
@@ -62,9 +76,9 @@ class Evaluation:
 
         match self.population:
             case InfinitePopulation():
-                return self._raw_sample_size_(*self.error_control)
+                return self._raw_sample_size_(self.error_control)
             case FinitePopulation():
-                max_sample_size = self._raw_sample_size_(*self.error_control)
+                max_sample_size = self._raw_sample_size_(self.error_control)
                 logger.debug(
                     "adjusting for finite population size using Cochran's formula"
                 )
@@ -109,7 +123,7 @@ class Evaluation:
     def compute_error_probability(
         self,
         sample_size: int | None = None,
-        error_type: ErrorType | None = None,
+        error_control: ErrorControl | None = None,
     ) -> tuple[float, dict[str, float]]:
         """Compute the achieved evaluation-level confidence or power.
 
@@ -122,8 +136,8 @@ class Evaluation:
         if sample_size is None:
             sample_size = self.compute_sample_size()
         sample_size = self.__get_adjusted_sample_size__(sample_size)
-        if error_type is None:
-            _, error_type = self.error_control
+        if error_control is None:
+            error_control = self.error_control
         repetition_multiplier = self._get_total_repeats_()
         # match self.population:
         #     case FilteredPopulation():
@@ -132,7 +146,7 @@ class Evaluation:
         for measure in self.measures:
             confidence = measure.compute_error_probability(
                 sample_size,
-                error_type=error_type,
+                error_control=error_control,
                 repetition_multiplier=repetition_multiplier,
             )
             confs[measure.name] = confidence
@@ -144,7 +158,9 @@ class Evaluation:
         return total_conf, confs
 
     def compute_absolute_errors(
-        self, sample_size: int | None = None
+        self,
+        sample_size: int | None = None,
+        error_control: ErrorControl | None = None,
     ) -> dict[str, float]:
         """Compute the absolute error of all measures of this evaluation.
 
@@ -158,7 +174,8 @@ class Evaluation:
         if sample_size is None:
             sample_size = self.compute_sample_size()
         sample_size = self.__get_adjusted_sample_size__(sample_size)
-        error, error_type = self.error_control
+        if error_control is None:
+            error_control = self.error_control
         # match self.population:
         #     case FilteredPopulation():
         #         confidence /= self.population.filter_confidence
@@ -166,8 +183,7 @@ class Evaluation:
         for measure in self.measures:
             abs_error = measure.compute_absolute_error(
                 sample_size,
-                error,
-                error_type=error_type,
+                error_control=error_control,
                 repetition_multiplier=repetition_multiplier,
             )
             errors[measure.name] = abs_error

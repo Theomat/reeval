@@ -106,11 +106,11 @@ Compute how many instances are needed to estimate a binary proportion (e.g. the 
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = BooleanMeasure(name="accuracy", absolute_error=0.02)
 
-n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.05))
 print(f"Required sample size: {n}")
 # => Required sample size: 2401
 ```
@@ -122,7 +122,7 @@ import math
 
 # std for a Bernoulli(p) is sqrt(p*(1-p)); here p ~ 0.9
 measure = BooleanMeasure(name="accuracy", std=math.sqrt(0.9 * 0.1), absolute_error=0.02)
-n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.05))
 print(f"Required sample size: {n}")
 # => Required sample size: 865  (smaller because the variance is lower)
 ```
@@ -132,7 +132,7 @@ You can also account for imperfect labels by setting `sensitivity` and `specific
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 # Labels are not perfect:
 # - 97% sensitivity
@@ -144,7 +144,7 @@ measure = BooleanMeasure(
     specificity=0.98,
 )
 
-n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.05))
 print(f"Required sample size with noisy labels: {n}")
 ```
 
@@ -152,7 +152,7 @@ If you want to model only one aspect of label quality, you can set the other one
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 # Only account for sensitivity
 sensitivity_measure = BooleanMeasure(
@@ -172,7 +172,7 @@ for label, measure in [
     ("sensitivity", sensitivity_measure),
     ("specificity", specificity_measure),
 ]:
-    n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+    n = measure.compute_sample_size(ErrorControl.type_i(0.05))
     print(f"{label}: {n}")
 ```
 
@@ -186,11 +186,11 @@ Estimate the mean running time of a solver within ±0.5 seconds at 99% confidenc
 
 ```python
 from reeval.measures import MeanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = MeanMeasure(name="runtime", std=2.0, absolute_error=0.5)
 
-n = measure.compute_sample_size(error=0.01, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.01))
 print(f"Required sample size: {n}")
 ```
 
@@ -202,12 +202,12 @@ When the standard deviation is not known in advance, omit `std`. The library use
 
 ```python
 from reeval.measures import MeanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 # No std provided: Student-t distribution with unknown variance
 measure = MeanMeasure(name="f1_score", absolute_error=0.05)
 
-n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.05))
 print(f"Required sample size (Student-t): {n}")
 ```
 
@@ -219,11 +219,11 @@ Estimate the mean rank assigned to items on a 1–5 Likert scale within ±0.3 ra
 
 ```python
 from reeval.measures import RankMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = RankMeasure(name="user_rating", max_rank=5, absolute_error=0.3)
 
-n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.05))
 print(f"Required sample size: {n}")
 ```
 
@@ -235,18 +235,18 @@ Estimate the variance of a quantity within a ±10% relative error at 95% confide
 
 ```python
 from reeval.measures import VarianceMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = VarianceMeasure(name="score_variance", relative_error=0.10)
 
-n = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+n = measure.compute_sample_size(ErrorControl.type_i(0.05))
 print(f"Required sample size: {n}")
 ```
 
 To retrieve the relative error bound achieved by a fixed sample size:
 
 ```python
-rel_err = measure.compute_relative_error(sample_size=400, error=0.05, error_type=ErrorType.TYPE_I)
+rel_err = measure.compute_relative_error(sample_size=400, error_control=ErrorControl.type_i(0.05))
 print(f"Relative error at n=400: +/-{rel_err:.3f}")
 ```
 
@@ -258,19 +258,22 @@ If the sample size is already fixed (e.g. by resource constraints), compute what
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = BooleanMeasure(name="accuracy", absolute_error=0.02)
 
-confidence = measure.compute_error_probability(sample_size=1000, error_type=ErrorType.TYPE_I)
+confidence = measure.compute_error_probability(sample_size=1000, error_control=ErrorControl.type_i(0.05))
 print(f"Achieved confidence at n=1000: {confidence:.3f}")
 # => Achieved confidence at n=1000: 0.898
 ```
 
-The same method with `ErrorType.TYPE_II` returns the achieved statistical power:
+The same method with `ErrorControl.type_ii(...)` returns achieved statistical power for detecting the configured effect size at significance level `α`:
 
 ```python
-power = measure.compute_error_probability(sample_size=1000, error_type=ErrorType.TYPE_II)
+power = measure.compute_error_probability(
+    sample_size=1000,
+    error_control=ErrorControl.type_ii(0.20, significance_level=0.05),
+)
 print(f"Achieved power at n=1000: {power:.3f}")
 ```
 
@@ -282,12 +285,12 @@ Given a fixed sample size and a desired confidence level, compute the error boun
 
 ```python
 from reeval.measures import MeanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = MeanMeasure(name="score", std=1.5, absolute_error=0.1)
 
 abs_error = measure.compute_absolute_error(
-    sample_size=500, error=0.05, error_type=ErrorType.TYPE_I
+    sample_size=500, error_control=ErrorControl.type_i(0.05)
 )
 print(f"Guaranteed absolute error at n=500: +/-{abs_error:.4f}")
 ```
@@ -299,9 +302,8 @@ print(f"Guaranteed absolute error at n=500: +/-{abs_error:.4f}")
 `Evaluation` aggregates several measures defined on the same sample. Bonferroni correction is applied automatically so that the family-wise confidence covers all measures simultaneously.
 
 ```python
-from reeval import Evaluation
+from reeval import ErrorControl, Evaluation
 from reeval.measures import BooleanMeasure, MeanMeasure
-from reeval.error_type import ErrorType
 from reeval.population import InfinitePopulation
 
 accuracy = BooleanMeasure(name="accuracy", absolute_error=0.02)
@@ -310,7 +312,7 @@ latency  = MeanMeasure(name="latency_ms", std=50.0, absolute_error=5.0)
 eval = Evaluation(
     measures=[accuracy, latency],
     population=InfinitePopulation(),
-    error_control=(0.05, ErrorType.TYPE_I),
+    error_control=ErrorControl.type_i(0.05),
 )
 
 n = eval.compute_sample_size()
@@ -323,20 +325,37 @@ The required sample size is the maximum across all measures after Bonferroni cor
 
 ### 9. Type II error — power analysis
 
-Switch to `ErrorType.TYPE_II` to control the false-negative rate (ensure sufficient statistical power) instead of the false-positive rate. Type II control uses a one-sided quantile and therefore typically requires fewer samples.
+Switch to `ErrorControl.type_ii(...)` to do classical power analysis instead of two-sided confidence calculation.
+
+Academically, power is a property of a hypothesis test under an alternative. It depends on both:
+
+- the rejection threshold `α`
+- the alternative effect size to detect
+
+For the normal-approximation measures in `reeval`, TYPE_II now uses the standard two-sided z-test approximation
+
+`n ≈ ((z_{1-α/2} + z_{1-β}) σ / δ)^2`
+
+where `δ` is the configured absolute or relative effect size. The corresponding minimum detectable effect is
+
+`δ ≈ (z_{1-α/2} + z_{1-β}) σ / √n`.
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = BooleanMeasure(name="accuracy", absolute_error=0.02)
 
-n_type_i  = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
-n_type_ii = measure.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_II)
+n_type_i  = measure.compute_sample_size(ErrorControl.type_i(0.05))
+n_type_ii = measure.compute_sample_size(
+    ErrorControl.type_ii(0.05, significance_level=0.05)
+)
 
 print(f"n (Type I,  α=0.05): {n_type_i}")
-print(f"n (Type II, β=0.05): {n_type_ii}  # one-sided -> fewer samples")
+print(f"n (Type II, α=0.05, β=0.05): {n_type_ii}")
 ```
+
+At equal nominal error rates, TYPE_II usually requires more samples than TYPE_I because power must satisfy both the significance threshold and the miss-rate target.
 
 ---
 
@@ -347,7 +366,7 @@ When sampling from a bounded population, Cochran's formula reduces the required 
 ```python
 from reeval import Evaluation
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 from reeval.population import InfinitePopulation, FinitePopulation
 
 measure = BooleanMeasure(name="accuracy", absolute_error=0.02)
@@ -355,13 +374,13 @@ measure = BooleanMeasure(name="accuracy", absolute_error=0.02)
 eval_infinite = Evaluation(
     measures=[measure],
     population=InfinitePopulation(),
-    error_control=(0.05, ErrorType.TYPE_I),
+    error_control=(0.05, ErrorControl.type_i(0.05)),
 )
 
 eval_finite = Evaluation(
     measures=[measure],
     population=FinitePopulation(size=5000),
-    error_control=(0.05, ErrorType.TYPE_I),
+    error_control=(0.05, ErrorControl.type_i(0.05)),
 )
 
 print(f"n (infinite population):    {eval_infinite.compute_sample_size()}")
@@ -377,7 +396,7 @@ print(f"n (finite population N=5000): {eval_finite.compute_sample_size()}")
 
 ```python
 from reeval.measures import CategoricalMeasures
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 # Estimate the proportion in each of 4 sentiment classes.
 sentiment_measures = CategoricalMeasures(
@@ -387,7 +406,7 @@ sentiment_measures = CategoricalMeasures(
 )
 
 for m in sentiment_measures:
-    n = m.compute_sample_size(error=0.05, error_type=ErrorType.TYPE_I)
+    n = m.compute_sample_size(ErrorControl.type_i(0.05))
     print(f"  {m.name}: n = {n}")
 # sentiment_0: n = ...
 # sentiment_1: n = ...
@@ -404,7 +423,7 @@ When these measures are combined in an `Evaluation`, Bonferroni correction accou
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = BooleanMeasure(name="pass_rate", absolute_error=0.05)
 
@@ -413,7 +432,7 @@ sample_a = [True] * 80 + [False] * 20
 sample_b = [True] * 60 + [False] * 40
 
 p_value, odds_ratio, ci = measure.test_different(
-    sample_a, sample_b, error=0.05, error_type=ErrorType.TYPE_I
+    sample_a, sample_b, error_control=ErrorControl.type_i(0.05)
 )
 
 print(f"p-value:    {p_value:.4f}")
@@ -421,11 +440,13 @@ print(f"Odds ratio: {odds_ratio:.3f}")
 print(f"95% CI:     ({ci[0]:.3f}, {ci[1]:.3f})")
 ```
 
-Use `ErrorType.TYPE_II` to obtain a tighter, power-focused confidence interval (one-sided quantile):
+Use `ErrorControl.type_ii(0.05, significance_level=0.05)` to obtain the alternative CI style currently exposed by the test helpers:
 
 ```python
 _, _, ci_power = measure.test_different(
-    sample_a, sample_b, error=0.05, error_type=ErrorType.TYPE_II
+    sample_a,
+    sample_b,
+    error_control=ErrorControl.type_ii(0.05, significance_level=0.05),
 )
 print(f"Power CI: ({ci_power[0]:.3f}, {ci_power[1]:.3f})")
 ```
@@ -439,7 +460,7 @@ print(f"Power CI: ({ci_power[0]:.3f}, {ci_power[1]:.3f})")
 ```python
 import random
 from reeval.measures import MeanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 random.seed(42)
 measure = MeanMeasure(name="score", std=1.0, absolute_error=0.1)
@@ -448,7 +469,7 @@ sample_a = [random.gauss(5.0, 1.0) for _ in range(200)]
 sample_b = [random.gauss(5.5, 1.0) for _ in range(200)]
 
 p_value, a12, ci = measure.test_different(
-    sample_a, sample_b, error=0.05, error_type=ErrorType.TYPE_I
+    sample_a, sample_b, error_control=ErrorControl.type_i(0.05)
 )
 
 print(f"p-value: {p_value:.4f}")
@@ -467,7 +488,7 @@ When both samples are measured on the same instances (e.g. two systems evaluated
 ```python
 import random
 from reeval.measures import MeanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 random.seed(0)
 measure = MeanMeasure(name="score", std=1.0, absolute_error=0.1)
@@ -478,7 +499,7 @@ sample_a = [x + random.gauss(0.0, 0.2) for x in base]
 sample_b = [x + random.gauss(0.3, 0.2) for x in base]
 
 p_value, a12, ci = measure.test_different_paired_data(
-    sample_a, sample_b, error=0.05, error_type=ErrorType.TYPE_I
+    sample_a, sample_b, error_control=ErrorControl.type_i(0.05)
 )
 
 print(f"Wilcoxon p-value: {p_value:.4f}")
@@ -495,7 +516,7 @@ print(f"95% CI:           ({ci[0]:.3f}, {ci[1]:.3f})")
 ```python
 import random
 from reeval.measures import RankMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 random.seed(7)
 measure = RankMeasure(name="preference", max_rank=5, absolute_error=0.5)
@@ -505,7 +526,7 @@ ratings_a = [random.randint(3, 5) for _ in range(100)]
 ratings_b = [random.randint(1, 4) for _ in range(100)]
 
 p_value, a12, ci = measure.test_different(
-    ratings_a, ratings_b, error=0.05, error_type=ErrorType.TYPE_I
+    ratings_a, ratings_b, error_control=ErrorControl.type_i(0.05)
 )
 
 print(f"p-value: {p_value:.4f}")
@@ -538,7 +559,7 @@ For boolean measures, the odds ratio measures how much more (or less) likely out
 
 ```python
 from reeval.measures import BooleanMeasure
-from reeval.error_type import ErrorType
+from reeval import ErrorControl
 
 measure = BooleanMeasure(name="detection", absolute_error=0.05)
 
@@ -547,7 +568,7 @@ sample_a = [True] * 45 + [False] * 5
 sample_b = [True] * 30 + [False] * 20
 
 p_value, or_val, ci = measure.test_different(
-    sample_a, sample_b, error=0.05, error_type=ErrorType.TYPE_I
+    sample_a, sample_b, error_control=ErrorControl.type_i(0.05)
 )
 
 print(f"p-value:    {p_value:.4f}")
