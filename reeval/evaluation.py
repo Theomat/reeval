@@ -94,6 +94,12 @@ class Evaluation:
             return sample_size
         return reverse_cochran_finite_pop(self.population.get_size(), sample_size)
 
+    def __is_full_population_sample__(self, sample_size: int) -> bool:
+        """Return whether the provided sample covers the full finite population."""
+        if self.population.is_infinite():
+            return False
+        return sample_size >= self.population.get_size()
+
     def compute_error_probability(
         self,
         sample_size: int | None = None,
@@ -109,9 +115,19 @@ class Evaluation:
         confs = {}
         if sample_size is None:
             sample_size = self.compute_sample_size()
-        sample_size = self.__get_adjusted_sample_size__(sample_size)
         if error_control is None:
             error_control = self.error_control
+
+        if self.__is_full_population_sample__(sample_size):
+            for measure in self.measures:
+                confs[measure.name] = 1.0
+
+            total_conf = self.population.stage_success_probability()
+            for confidence in confs.values():
+                total_conf *= confidence
+            return total_conf, confs
+
+        sample_size = self.__get_adjusted_sample_size__(sample_size)
         repetition_multiplier = self._get_total_repeats_()
 
         for measure in self.measures:
@@ -144,9 +160,15 @@ class Evaluation:
         errors = {}
         if sample_size is None:
             sample_size = self.compute_sample_size()
-        sample_size = self.__get_adjusted_sample_size__(sample_size)
         if error_control is None:
             error_control = self.error_control
+
+        if self.__is_full_population_sample__(sample_size):
+            for measure in self.measures:
+                errors[measure.name] = 0.0
+            return errors
+
+        sample_size = self.__get_adjusted_sample_size__(sample_size)
         error_control = self.population.adjust_error(error_control)
         repetition_multiplier = total_repeats
         for measure in self.measures:

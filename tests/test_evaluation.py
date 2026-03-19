@@ -256,6 +256,18 @@ class TestComputeSampleSizeFinite:
         ).compute_sample_size()
         assert n_tight >= n_loose
 
+    def test_full_population_sample_has_exact_reporting(self):
+        evaluation = eval_fin(bool_measure(), pop_size=500)
+
+        total_confidence, per_measure = evaluation.compute_error_probability(
+            sample_size=500
+        )
+        errors = evaluation.compute_absolute_errors(sample_size=500)
+
+        assert total_confidence == pytest.approx(1.0)
+        assert per_measure == {"b": pytest.approx(1.0)}
+        assert errors == {"b": pytest.approx(0.0)}
+
 
 class TestComputeSampleSizeFiltered:
     def test_sample_size_matches_adjusted_downstream_problem(self):
@@ -328,6 +340,30 @@ class TestComputeSampleSizeFiltered:
         )
 
         assert errors[downstream_measure.name] == pytest.approx(expected_error)
+
+    def test_full_filtered_population_sample_has_exact_downstream_reporting(self):
+        downstream_measure = bool_measure()
+        filter_measure = BooleanMeasure(name="keep", absolute_error=0.1)
+        evaluation = eval_filtered(
+            downstream_measure,
+            source_population=FinitePopulation(size=10_000),
+            filter_measure=filter_measure,
+            empirical_proportion=0.2,
+            filter_error_control=ec_i(0.01),
+            error_control=ec_i(0.05),
+        )
+
+        sample_size = evaluation.population.get_size()
+        total_confidence, per_measure = evaluation.compute_error_probability(
+            sample_size=sample_size
+        )
+        errors = evaluation.compute_absolute_errors(sample_size=sample_size)
+
+        assert total_confidence == pytest.approx(
+            evaluation.population.stage_success_probability()
+        )
+        assert per_measure == {downstream_measure.name: pytest.approx(1.0)}
+        assert errors == {downstream_measure.name: pytest.approx(0.0)}
 
 
 class TestComputeGlobalSampleSizes:
