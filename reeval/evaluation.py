@@ -4,7 +4,7 @@ import math
 
 from reeval.error_control import AlphaErrorControl, ErrorControl
 from reeval.measures.measure import apply_bonferroni
-from reeval.population import FinitePopulation, InfinitePopulation
+from reeval.population import FilteredPopulation, InfinitePopulation
 from reeval.measures import Measure
 
 from reeval.population import Population
@@ -12,7 +12,14 @@ from reeval.population import Population
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Evaluation"]
+__all__ = [
+    "Evaluation",
+    "apply_cochran_finite_pop",
+    "reverse_cochran_finite_pop",
+    "compute_global_sample_sizes",
+    "compute_global_error_probabilities",
+    "compute_global_absolute_errors",
+]
 
 
 def apply_cochran_finite_pop(pop_size: int, n0: int) -> int:
@@ -25,7 +32,7 @@ def reverse_cochran_finite_pop(pop_size: int, n: int) -> int:
     return n * (pop_size - 1) / (pop_size - n)
 
 
-@dataclass()
+@dataclass(unsafe_hash=True)
 class Evaluation:
     measures: tuple[Measure, ...]
     """The measures present in this evaluation."""
@@ -73,52 +80,19 @@ class Evaluation:
         Returns:
             int: sample size
         """
+        adjusted_error_control = self.population.adjust_error(self.error_control)
+        max_sample_size = self._raw_sample_size_(adjusted_error_control)
+        if self.population.is_infinite():
+            return max_sample_size
 
-        match self.population:
-            case InfinitePopulation():
-                return self._raw_sample_size_(self.error_control)
-            case FinitePopulation():
-                max_sample_size = self._raw_sample_size_(self.error_control)
-                logger.debug(
-                    "adjusting for finite population size using Cochran's formula"
-                )
-                return apply_cochran_finite_pop(
-                    self.population.get_size(), max_sample_size
-                )
-            # case FilteredPopulation():
-            #     logger.debug("adjusting for filtered population")
-            #     confidence = self.confidence / self.population.filter_confidence
-            #     assert (
-            #         confidence < 1
-            #     ), "confidence must be lost from a subsequent evaluation!"
-            #     logger.info(
-            #         f"adjusting confidence from {self.confidence} to {confidence}"
-            #     )
-
-            #     original_size = self.population.get_size()
-            #     max_sample_size = self._raw_sample_size_(1 - confidence)
-
-            #     if self.population.is_infinite():
-            #         return self._raw_sample_size_(*self.error_control)
-            #     else:
-            #         return apply_cochran_finite_pop(max_sample_size, original_size)
+        logger.debug("adjusting for finite population size using Cochran's formula")
+        return apply_cochran_finite_pop(self.population.get_size(), max_sample_size)
 
     def __get_adjusted_sample_size__(self, sample_size: int) -> int:
         """Inverse sample size corrections to get to the raw uncorrected number."""
-        match self.population:
-            case InfinitePopulation():
-                return sample_size
-            case FinitePopulation():
-                return reverse_cochran_finite_pop(
-                    self.population.get_size(), sample_size
-                )
-            # case FilteredPopulation():
-            #     if self.population.is_infinite():
-            #         return sample_size
-            #     else:
-            #         return reverse_cochran_finite_pop(
-            #             self.population.get_size(), sample_size
-            #         )
+        if self.population.is_infinite():
+            return sample_size
+        return reverse_cochran_finite_pop(self.population.get_size(), sample_size)
 
     def compute_error_probability(
         self,
@@ -139,9 +113,6 @@ class Evaluation:
         if error_control is None:
             error_control = self.error_control
         repetition_multiplier = self._get_total_repeats_()
-        # match self.population:
-        #     case FilteredPopulation():
-        #         total_conf = self.population.filter_confidence
 
         for measure in self.measures:
             confidence = measure.compute_error_probability(
@@ -151,7 +122,7 @@ class Evaluation:
             )
             confs[measure.name] = confidence
 
-        total_conf = 1
+        total_conf = self.population.stage_success_probability()
         for confidence in confs.values():
             total_conf *= confidence
 
@@ -176,9 +147,7 @@ class Evaluation:
         sample_size = self.__get_adjusted_sample_size__(sample_size)
         if error_control is None:
             error_control = self.error_control
-        # match self.population:
-        #     case FilteredPopulation():
-        #         confidence /= self.population.filter_confidence
+        error_control = self.population.adjust_error(error_control)
         repetition_multiplier = total_repeats
         for measure in self.measures:
             abs_error = measure.compute_absolute_error(
@@ -191,50 +160,102 @@ class Evaluation:
         return errors
 
 
-# def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int]:
-#     """Computes the conservative sample size so that all sample size required are respected for all evaluations at the same time.
-#     Ensures that downstream evaluations reach the desired confidence.
+def compute_global_sample_sizes(evals: list[Evaluation]) -> dict[Evaluation, int]:
+    """Compute mutually compatible sample sizes for chained evaluations.
 
-#     Args:
-#         evals (list[Evaluation]): the list of evaluations
+    Each evaluation first receives its own local sample-size requirement.
+    Requirements are then propagated upstream through filtered populations.
 
-#     Returns:
-#         dict[Evaluation, int]: sample size for all the evaluations
-#     """
+    If an evaluation on population `P_f = {x in P : F(x)=1}` requires `n_f`
+    filtered examples, and the filtering prevalence has lower conservative
+    bound `p_lower`, then any upstream evaluation directly sampling `P` must
+    inspect at least `ceil(n_f / p_lower)` items to ensure enough retained
+    items for the downstream stage.
 
-#     all_evals: dict[Evaluation, int] = {}
+    The procedure iterates to a fixed point because filtered populations can be
+    chained.
+    """
 
-#     def compute_sample_size_for_eval(eval: Evaluation) -> int:
-#         sample_size = all_evals.get(eval, eval.compute_sample_size())
-#         # We need to ensure that in the parent evaluation there is at leas this sample size
+    required_samples = {ev: ev.compute_sample_size() for ev in evals}
 
-#         match eval.population:
-#             case FilteredPopulation():
-#                 if not eval.population.is_infinite():
-#                     least_ratio = (
-#                         eval.population.empirical_proportion
-#                         - eval.population.filter_measure.absolute_error
-#                     )
-#                     assert (
-#                         least_ratio > 0
-#                     ), "Worst ratio of population with specified property is 0 so sampling cannot be guaranteed, suggestion: decrease the absolute error"
-#                     new_size = min(
-#                         int(math.ceil(sample_size / least_ratio)),
-#                         eval.population.source_population.get_size(),
-#                     )
-#                     logger.info(
-#                         f"going from {sample_size} to {new_size} with least ratio = {least_ratio}"
-#                     )
-#                     if new_size > all_evals[eval]:
-#                         all_evals[eval] = new_size
-#             case _:
-#                 pass
-#         all_evals[eval] = sample_size
+    while True:
+        previous = required_samples.copy()
 
-#     while True:
-#         old = all_evals.copy()
-#         for ev in evals:
-#             compute_sample_size_for_eval(ev)
-#         if all(old[ev] == all_evals[ev] for ev in evals):
-#             break
-#     return all_evals
+        for child_eval in evals:
+            child_population = child_eval.population
+            if not isinstance(child_population, FilteredPopulation):
+                continue
+
+            lower_ratio = child_population.conservative_lower_proportion()
+            if lower_ratio <= 0:
+                raise ValueError(
+                    "Global sample-size propagation is impossible because the "
+                    "filtered population may be empty under the conservative "
+                    "lower prevalence bound. Increase the empirical proportion "
+                    "or decrease the filter absolute error."
+                )
+
+            upstream_required = int(
+                math.ceil(required_samples[child_eval] / lower_ratio)
+            )
+            source_population = child_population.source_population
+            if (
+                not source_population.is_infinite()
+                and upstream_required > source_population.get_size()
+            ):
+                raise ValueError(
+                    "Global sample-size propagation is impossible because the "
+                    "source population is too small to guarantee enough "
+                    "filtered items."
+                )
+
+            for parent_eval in evals:
+                if parent_eval.population == source_population:
+                    required_samples[parent_eval] = max(
+                        required_samples[parent_eval], upstream_required
+                    )
+
+        if all(previous[ev] == required_samples[ev] for ev in evals):
+            return required_samples
+
+
+def compute_global_error_probabilities(
+    evals: list[Evaluation],
+    sample_sizes: dict[Evaluation, int],
+    error_controls: dict[Evaluation, ErrorControl] | None = None,
+) -> dict[Evaluation, tuple[float, dict[str, float]]]:
+    """Compute achieved evaluation-level confidence/power for a chained design.
+
+    The caller provides the sample size to use for each evaluation. This keeps
+    design (`compute_global_sample_sizes`) separate from reporting.
+    """
+    results = {}
+    for evaluation in evals:
+        results[evaluation] = evaluation.compute_error_probability(
+            sample_size=sample_sizes[evaluation],
+            error_control=None
+            if error_controls is None
+            else error_controls.get(evaluation, evaluation.error_control),
+        )
+    return results
+
+
+def compute_global_absolute_errors(
+    evals: list[Evaluation],
+    sample_sizes: dict[Evaluation, int],
+    error_controls: dict[Evaluation, ErrorControl] | None = None,
+) -> dict[Evaluation, dict[str, float]]:
+    """Compute achieved absolute errors for a chained design.
+
+    As for `compute_global_error_probabilities`, the caller provides the sample
+    size used for each evaluation.
+    """
+    results = {}
+    for evaluation in evals:
+        results[evaluation] = evaluation.compute_absolute_errors(
+            sample_size=sample_sizes[evaluation],
+            error_control=None
+            if error_controls is None
+            else error_controls.get(evaluation, evaluation.error_control),
+        )
+    return results
