@@ -1,3 +1,4 @@
+import math
 import pytest
 
 from reeval.error_control import ErrorControl
@@ -5,13 +6,16 @@ from reeval.error_control import ErrorControl
 from reeval.evaluation import (
     Evaluation,
     apply_cochran_finite_pop,
+    compute_global_absolute_errors,
+    compute_global_error_probabilities,
+    compute_global_sample_sizes,
     reverse_cochran_finite_pop,
 )
 from reeval.measures.boolean_measure import BooleanMeasure
 from reeval.measures.mean_measure import MeanMeasure
 from reeval.measures.variance_measure import VarianceMeasure
 from reeval.measures.rank_measure import RankMeasure
-from reeval.population import FinitePopulation, InfinitePopulation
+from reeval.population import FilteredPopulation, FinitePopulation, InfinitePopulation
 
 POWER_ALPHA = 0.05
 
@@ -57,6 +61,26 @@ def eval_fin(*measures, pop_size, error_control=None):
     return Evaluation(
         measures=measures,
         population=FinitePopulation(size=pop_size),
+        error_control=ec_i() if error_control is None else error_control,
+    )
+
+
+def eval_filtered(
+    *measures,
+    source_population,
+    filter_measure,
+    empirical_proportion,
+    filter_error_control,
+    error_control=None,
+):
+    return Evaluation(
+        measures=measures,
+        population=FilteredPopulation(
+            source_population=source_population,
+            error_control=filter_error_control,
+            filter_measure=filter_measure,
+            empirical_proportion=empirical_proportion,
+        ),
         error_control=ec_i() if error_control is None else error_control,
     )
 
@@ -231,6 +255,273 @@ class TestComputeSampleSizeFinite:
             m, pop_size=5_000, error_control=ec_i(0.01)
         ).compute_sample_size()
         assert n_tight >= n_loose
+
+
+class TestComputeSampleSizeFiltered:
+    def test_sample_size_matches_adjusted_downstream_problem(self):
+        downstream_measure = bool_measure()
+        filter_measure = BooleanMeasure(name="keep", absolute_error=0.1)
+        population = FilteredPopulation(
+            source_population=FinitePopulation(size=10_000),
+            error_control=ec_i(0.01),
+            filter_measure=filter_measure,
+            empirical_proportion=0.2,
+        )
+        evaluation = Evaluation(
+            measures=(downstream_measure,),
+            population=population,
+            error_control=ec_i(0.05),
+        )
+
+        adjusted_error = population.adjust_error(ec_i(0.05))
+        raw_required = Evaluation(
+            measures=(downstream_measure,),
+            population=InfinitePopulation(),
+            error_control=adjusted_error,
+        ).compute_sample_size()
+        expected = apply_cochran_finite_pop(population.get_size(), raw_required)
+
+        assert evaluation.compute_sample_size() == expected
+
+    def test_default_error_probability_includes_filtering_guarantee(self):
+        downstream_measure = bool_measure()
+        filter_measure = BooleanMeasure(name="keep", absolute_error=0.1)
+        evaluation = eval_filtered(
+            downstream_measure,
+            source_population=FinitePopulation(size=10_000),
+            filter_measure=filter_measure,
+            empirical_proportion=0.2,
+            filter_error_control=ec_i(0.01),
+            error_control=ec_i(0.05),
+        )
+
+        total_confidence, per_measure = evaluation.compute_error_probability()
+
+        expected = evaluation.population.stage_success_probability()
+        for confidence in per_measure.values():
+            expected *= confidence
+        assert total_confidence == pytest.approx(expected)
+
+    def test_default_absolute_error_uses_adjusted_downstream_budget(self):
+        downstream_measure = bool_measure()
+        filter_measure = BooleanMeasure(name="keep", absolute_error=0.1)
+        evaluation = eval_filtered(
+            downstream_measure,
+            source_population=FinitePopulation(size=10_000),
+            filter_measure=filter_measure,
+            empirical_proportion=0.2,
+            filter_error_control=ec_i(0.01),
+            error_control=ec_i(0.05),
+        )
+
+        sample_size = evaluation.compute_sample_size()
+        errors = evaluation.compute_absolute_errors(sample_size=sample_size)
+
+        raw_sample_size = reverse_cochran_finite_pop(
+            evaluation.population.get_size(), sample_size
+        )
+        adjusted_error = evaluation.population.adjust_error(evaluation.error_control)
+        expected_error = downstream_measure.compute_absolute_error(
+            raw_sample_size,
+            error_control=adjusted_error,
+            repetition_multiplier=evaluation._get_total_repeats_(),
+        )
+
+        assert errors[downstream_measure.name] == pytest.approx(expected_error)
+
+
+class TestComputeGlobalSampleSizes:
+    def test_propagates_filtered_requirement_to_source_evaluation(self):
+        source_eval = eval_fin(bool_measure(), pop_size=10_000, error_control=ec_i(0.2))
+        child_population = FilteredPopulation(
+            source_population=source_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="keep", absolute_error=0.05),
+            empirical_proportion=0.4,
+        )
+        child_eval = Evaluation(
+            measures=(mean_measure(absolute_error=0.02),),
+            population=child_population,
+            error_control=ec_i(0.05),
+        )
+
+        sizes = compute_global_sample_sizes([source_eval, child_eval])
+
+        assert sizes[child_eval] == child_eval.compute_sample_size()
+        expected_source_requirement = int(
+            math.ceil(
+                sizes[child_eval] / child_population.conservative_lower_proportion()
+            )
+        )
+        assert sizes[source_eval] >= expected_source_requirement
+
+    def test_propagates_through_chained_filtered_populations(self):
+        root_eval = eval_fin(bool_measure(), pop_size=20_000, error_control=ec_i(0.2))
+        first_population = FilteredPopulation(
+            source_population=root_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="first", absolute_error=0.05),
+            empirical_proportion=0.5,
+        )
+        mid_eval = Evaluation(
+            measures=(bool_measure(absolute_error=0.04),),
+            population=first_population,
+            error_control=ec_i(0.05),
+        )
+        second_population = FilteredPopulation(
+            source_population=mid_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="second", absolute_error=0.05),
+            empirical_proportion=0.7,
+        )
+        leaf_eval = Evaluation(
+            measures=(mean_measure(absolute_error=0.05),),
+            population=second_population,
+            error_control=ec_i(0.05),
+        )
+
+        sizes = compute_global_sample_sizes([root_eval, mid_eval, leaf_eval])
+
+        mid_requirement_from_leaf = int(
+            math.ceil(
+                sizes[leaf_eval] / second_population.conservative_lower_proportion()
+            )
+        )
+        root_requirement_from_mid = int(
+            math.ceil(
+                sizes[mid_eval] / first_population.conservative_lower_proportion()
+            )
+        )
+
+        assert sizes[mid_eval] >= mid_requirement_from_leaf
+        assert sizes[root_eval] >= root_requirement_from_mid
+
+    def test_raises_when_lower_filtered_proportion_can_be_zero(self):
+        child_population = FilteredPopulation(
+            source_population=FinitePopulation(size=10_000),
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="keep", absolute_error=0.2),
+            empirical_proportion=0.1,
+        )
+        child_eval = Evaluation(
+            measures=(bool_measure(),),
+            population=child_population,
+            error_control=ec_i(0.05),
+        )
+
+        with pytest.raises(ValueError, match="may be empty"):
+            compute_global_sample_sizes([child_eval])
+
+    def test_raises_when_source_population_cannot_supply_enough_filtered_items(self):
+        source_eval = eval_fin(bool_measure(), pop_size=100, error_control=ec_i(0.2))
+        child_population = FilteredPopulation(
+            source_population=source_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="keep", absolute_error=0.05),
+            empirical_proportion=0.1,
+        )
+        child_eval = Evaluation(
+            measures=(mean_measure(absolute_error=0.01),),
+            population=child_population,
+            error_control=ec_i(0.05),
+        )
+
+        with pytest.raises(ValueError, match="too small"):
+            compute_global_sample_sizes([source_eval, child_eval])
+
+
+class TestGlobalEvaluationSummaries:
+    def test_global_error_probabilities_use_provided_sample_sizes(self):
+        source_eval = eval_fin(bool_measure(), pop_size=10_000, error_control=ec_i(0.2))
+        child_population = FilteredPopulation(
+            source_population=source_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="keep", absolute_error=0.05),
+            empirical_proportion=0.4,
+        )
+        child_eval = Evaluation(
+            measures=(mean_measure(absolute_error=0.02),),
+            population=child_population,
+            error_control=ec_i(0.05),
+        )
+
+        sample_sizes = compute_global_sample_sizes([source_eval, child_eval])
+        results = compute_global_error_probabilities(
+            [source_eval, child_eval], sample_sizes
+        )
+
+        assert results[source_eval] == source_eval.compute_error_probability(
+            sample_size=sample_sizes[source_eval]
+        )
+        assert results[child_eval] == child_eval.compute_error_probability(
+            sample_size=sample_sizes[child_eval]
+        )
+
+    def test_global_absolute_errors_use_provided_sample_sizes(self):
+        source_eval = eval_fin(bool_measure(), pop_size=10_000, error_control=ec_i(0.2))
+        child_population = FilteredPopulation(
+            source_population=source_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="keep", absolute_error=0.05),
+            empirical_proportion=0.4,
+        )
+        child_eval = Evaluation(
+            measures=(mean_measure(absolute_error=0.02),),
+            population=child_population,
+            error_control=ec_i(0.05),
+        )
+
+        sample_sizes = compute_global_sample_sizes([source_eval, child_eval])
+        results = compute_global_absolute_errors(
+            [source_eval, child_eval], sample_sizes
+        )
+
+        assert results[source_eval] == source_eval.compute_absolute_errors(
+            sample_size=sample_sizes[source_eval]
+        )
+        assert results[child_eval] == child_eval.compute_absolute_errors(
+            sample_size=sample_sizes[child_eval]
+        )
+
+    def test_global_helpers_accept_per_evaluation_error_controls(self):
+        source_eval = eval_fin(bool_measure(), pop_size=10_000, error_control=ec_i(0.2))
+        child_population = FilteredPopulation(
+            source_population=source_eval.population,
+            error_control=ec_i(0.01),
+            filter_measure=BooleanMeasure(name="keep", absolute_error=0.05),
+            empirical_proportion=0.4,
+        )
+        child_eval = Evaluation(
+            measures=(mean_measure(absolute_error=0.02),),
+            population=child_population,
+            error_control=ec_i(0.05),
+        )
+        overrides = {source_eval: ec_i(0.1), child_eval: ec_i(0.1)}
+        sample_sizes = compute_global_sample_sizes([source_eval, child_eval])
+
+        error_results = compute_global_error_probabilities(
+            [source_eval, child_eval], sample_sizes, error_controls=overrides
+        )
+        absolute_results = compute_global_absolute_errors(
+            [source_eval, child_eval], sample_sizes, error_controls=overrides
+        )
+
+        assert error_results[source_eval] == source_eval.compute_error_probability(
+            sample_size=sample_sizes[source_eval],
+            error_control=overrides[source_eval],
+        )
+        assert error_results[child_eval] == child_eval.compute_error_probability(
+            sample_size=sample_sizes[child_eval],
+            error_control=overrides[child_eval],
+        )
+        assert absolute_results[source_eval] == source_eval.compute_absolute_errors(
+            sample_size=sample_sizes[source_eval],
+            error_control=overrides[source_eval],
+        )
+        assert absolute_results[child_eval] == child_eval.compute_absolute_errors(
+            sample_size=sample_sizes[child_eval],
+            error_control=overrides[child_eval],
+        )
 
 
 # =========================================================================
